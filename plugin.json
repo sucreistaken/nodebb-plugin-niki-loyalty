@@ -1,0 +1,20 @@
+{
+    "id": "nodebb-plugin-niki-loyalty",
+    "name": "Niki Loyalty System",
+    "description": "Öğrenciler ders çalışsın, kahve kazansın.",
+    "url": "https://forum.ieu.app",
+    "library": "./library.js",
+    "hooks": [
+        { "hook": "static:app.load", "method": "init" },
+        { "hook": "filter:scripts.get", "method": "addScripts" },
+        { "hook": "filter:navigation.available", "method": "addNavigation" },
+        { "hook": "action:topic.get", "method": "checkTopicVisit" }
+    ],
+    "scripts": [
+        "static/lib/client.js"
+    ],
+    "staticDirs": {
+        "static": "./static"
+    },
+    "templates": "./templates"
+}

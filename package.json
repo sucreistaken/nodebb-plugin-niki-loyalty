@@ -1,0 +1,30 @@
+{
+  "name": "nodebb-plugin-niki-loyalty",
+  "version": "1.0.5",
+  "description": "Niki The Cat Coffee Loyalty System - Earn points while studying on IEU Forum.",
+  "main": "library.js",
+  "nbbpm": {
+    "compatibility": "^4.0.0"
+  },
+  "keywords": [
+    "nodebb",
+    "plugin",
+    "loyalty",
+    "gamification",
+    "points",
+    "niki"
+  ],
+  "author": {
+    "name": "IEU Forum Team",
+    "email": "admin@ieu.app"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sucreistaken/nodebb-plugin-niki-loyalty"
+  },
+  "bugs": {
+    "url": "https://github.com/sucreistaken/nodebb-plugin-niki-loyalty/issues"
+  },
+  "dependencies": {}
+}
