@@ -2,8 +2,8 @@
 
 $(document).ready(function () {
     // --- AYARLAR ---
-    // Buraya logonun linkini koy. Eğer link yoksa geçici bir kedi ikonu koydum.
-    const NIKI_LOGO_URL = 'https://i.ibb.co/nZvtpss/logo-placeholder.png'; 
+    // 1. Logo Ayarı (Senin çalışan linkin)
+    const NIKI_LOGO_URL = "https://i.ibb.co/nZvtpss/logo-placeholder.png";
 
     // Widget HTML Şablonu
     const widgetHtml = `
@@ -18,59 +18,82 @@ $(document).ready(function () {
         </div>
     `;
 
-    // 1. Widget'ı Ekrana Koyma ve Veri Çekme Fonksiyonu
+    // 1. Widget Başlatma ve Veri Yönetimi
     function initNikiWidget() {
-        // Eğer giriş yapmamışsa çalışma
         if (!app.user.uid || app.user.uid <= 0) return;
 
-        // Widget zaten varsa tekrar ekleme, sadece veriyi güncelle
+        // Widget yoksa ekle
         if ($('#niki-floating-widget').length === 0) {
             $('body').append(widgetHtml);
         }
 
-        // VERİYİ DOĞRU YERDEN ÇEK: wallet-data API'si (Kesin çözüm)
+        // --- HIZLI YÜKLEME (CACHE) ---
+        // Önce hafızadaki son puanı hemen göster (Bekletme yapmaz)
+        const cachedPoints = localStorage.getItem('niki_last_points');
+        if (cachedPoints !== null) {
+            $('#niki-live-points').text(cachedPoints);
+            $('#niki-floating-widget').removeClass('niki-hidden');
+        }
+
+        // Logo Kontrolü (Garanti olsun)
+        fixLogo();
+
+        // --- GÜNCEL VERİ ÇEKME ---
+        // Arka planda sunucuya sor: "Puan değişti mi?"
         $.get('/api/niki-loyalty/wallet-data', function(data) {
-            // Puanı güncelle
-            $('#niki-live-points').text(data.points || 0);
+            const freshPoints = data.points || 0;
             
-            // Widget'ı görünür yap
-            $('#niki-floating-widget').removeClass('niki-hidden');
+            // Puanı güncelle
+            $('#niki-live-points').text(freshPoints);
+            $('#niki-floating-widget').removeClass('niki-hidden'); // İlk kez açılıyorsa göster
+            
+            // Yeni puanı hafızaya at (Bir sonraki giriş için)
+            localStorage.setItem('niki_last_points', freshPoints);
+            
+            // Logoyu tekrar kontrol et (Resim geç yüklendiyse)
+            fixLogo();
         }).fail(function() {
-            // Hata olursa 0 yaz ama widget'ı yine de göster
-            $('#niki-live-points').text('0');
-            $('#niki-floating-widget').removeClass('niki-hidden');
+            // Hata olursa ve cache yoksa 0 yaz
+            if (cachedPoints === null) {
+                $('#niki-live-points').text('0');
+                $('#niki-floating-widget').removeClass('niki-hidden');
+            }
         });
     }
 
-    // 2. Sayfa İlk Açıldığında Çalıştır
+    // Logo Düzeltici (Senin çalışan kodun entegresi)
+    function fixLogo() {
+        const img = document.querySelector("img.niki-widget-logo");
+        if (img && img.src !== NIKI_LOGO_URL) {
+            img.src = NIKI_LOGO_URL;
+        }
+    }
+
+    // Başlat
     initNikiWidget();
 
-    // 3. Sayfa Değiştiğinde (Menülerde gezerken) Tekrar Çalıştır
+    // Sayfa Geçişlerinde Tekrar Çalıştır
     $(window).on('action:ajaxify.end', function () {
         initNikiWidget();
+        setTimeout(fixLogo, 500); // 0.5sn sonra son bir kontrol
     });
 
-    // --- AKTİFLİK VE PUAN KAZANMA SİSTEMİ ---
+    // --- AKTİFLİK SİSTEMİ (Heartbeat) ---
     let activeSeconds = 0;
     let isUserActive = false;
     let idleTimer;
     
-    // Hareket algılayınca sayacı sıfırla
     function resetIdleTimer() {
         isUserActive = true;
         clearTimeout(idleTimer);
-        idleTimer = setTimeout(() => { isUserActive = false; }, 30000); // 30sn hareketsizse pasif ol
+        idleTimer = setTimeout(() => { isUserActive = false; }, 30000);
     }
     $(window).on('mousemove scroll keydown click touchstart', resetIdleTimer);
 
-    // Her saniye kontrol et
     setInterval(() => {
-        // Sadece "Topic" sayfalarında, sekme görünürse ve kullanıcı aktifse say
         if (ajaxify.data.template.topic && document.visibilityState === 'visible' && isUserActive) {
             activeSeconds++;
         }
-        
-        // 60 saniye dolunca sunucuya bildir
         if (activeSeconds >= 60) {
             sendHeartbeat();
             activeSeconds = 0;
@@ -80,20 +103,18 @@ $(document).ready(function () {
     function sendHeartbeat() {
         $.post('/api/niki-loyalty/heartbeat', { _csrf: config.csrf_token }, function(res) {
             if (res.earned) {
-                // Puanı anlık güncelle
+                // Puanı güncelle
                 $('#niki-live-points').text(res.total);
-                
-                // Bildirim göster
+                // Hafızayı da güncelle
+                localStorage.setItem('niki_last_points', res.total);
+
                 showNikiToast(`+${res.points} Puan Kazandın! ☕`);
-                
-                // Widget'ı zıplat
                 $('#niki-floating-widget').addClass('niki-bounce');
                 setTimeout(() => $('#niki-floating-widget').removeClass('niki-bounce'), 500);
             }
         });
     }
 
-    // Özel Bildirim (Toast) Fonksiyonu
     function showNikiToast(msg) {
         $('.niki-toast').remove();
         const toast = $(`<div class="niki-toast"><i class="fa fa-paw"></i> ${msg}</div>`);
@@ -101,7 +122,7 @@ $(document).ready(function () {
         setTimeout(() => { toast.addClass('show'); }, 100);
         setTimeout(() => { 
             toast.removeClass('show');
-            setTimeout(() => toast.remove(), 300);
+            setTimeout(() => toast.remove(), 3000);
         }, 3000);
     }
 });
