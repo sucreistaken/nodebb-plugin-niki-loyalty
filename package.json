@@ -1,6 +1,6 @@
 {
   "name": "nodebb-plugin-niki-loyalty",
-  "version": "1.0.20",
+  "version": "1.1.5",
   "description": "Niki The Cat Coffee Loyalty System - Earn points while studying on IEU Forum.",
   "main": "library.js",
   "nbbpm": {
