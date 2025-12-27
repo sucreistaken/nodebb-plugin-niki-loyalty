@@ -5,14 +5,38 @@
     "url": "https://forum.ieu.app",
     "library": "./library.js",
     "hooks": [
-        { "hook": "static:app.load", "method": "init" },
-        { "hook": "filter:navigation.available", "method": "addNavigation" },
-        { "hook": "filter:scripts.get", "method": "addScripts" },
-        
-        { "hook": "action:user.loggedIn", "method": "onLogin" },
-        { "hook": "action:topic.save", "method": "onTopicCreate" },
-        { "hook": "action:post.save", "method": "onPostCreate" },
-        { "hook": "action:post.upvote", "method": "onUpvote" }
+        {
+            "hook": "static:app.load",
+            "method": "init"
+        },
+        {
+            "hook": "filter:navigation.available",
+            "method": "addNavigation"
+        },
+        {
+            "hook": "filter:scripts.get",
+            "method": "addScripts"
+        },
+        {
+            "hook": "action:user.loggedIn",
+            "method": "onLogin"
+        },
+        {
+            "hook": "action:topic.save",
+            "method": "onTopicCreate"
+        },
+        {
+            "hook": "action:post.save",
+            "method": "onPostCreate"
+        },
+        {
+            "hook": "action:post.upvote",
+            "method": "onUpvote"
+        },
+        {
+            "hook": "action:post.updatePostVoteCount",
+            "method": "onUpvote"
+        }
     ],
     "staticDirs": {
         "static": "./static"

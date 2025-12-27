@@ -14,19 +14,39 @@ $(document).ready(function () {
     }
 
     // -------------------------------------------------------------
-    // 🔔 NİKİ TOAST BİLDİRİM FONKSİYONU (Sol Alt - Logo ile)
+    // 🔔 NİKİ TOAST BİLDİRİM FONKSİYONU (Sol Alt - Inline Stiller)
     // -------------------------------------------------------------
     function showNikiToast(message) {
         // Mevcut toast'ı kaldır
         $('.niki-toast').remove();
 
         // Logo yolunu al (plugin'in static klasöründen)
-        const logoUrl = config.relative_path + '/plugins/nodebb-plugin-niki-loyalty/static/logo.png';
+        const logoUrl = (config && config.relative_path ? config.relative_path : '') + '/plugins/nodebb-plugin-niki-loyalty/static/logo.png';
 
-        // Toast HTML'i oluştur
+        // Toast HTML'i oluştur (Inline stiller ile)
         const toastHtml = `
-            <div class="niki-toast">
-                <img src="${logoUrl}" alt="Niki" style="width: 28px; height: 28px; border-radius: 50%; object-fit: cover;">
+            <div class="niki-toast" style="
+                position: fixed;
+                bottom: 90px;
+                left: 25px;
+                background: linear-gradient(135deg, #4E342E 0%, #3E2723 100%);
+                color: #fff;
+                padding: 12px 20px;
+                border-radius: 16px;
+                font-size: 14px;
+                font-weight: 600;
+                box-shadow: 0 8px 25px rgba(0,0,0,0.3);
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                z-index: 9999;
+                opacity: 0;
+                transform: translateY(20px) scale(0.9);
+                transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                border: 1px solid rgba(255,255,255,0.1);
+            ">
+                <img src="${logoUrl}" alt="Niki" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover; border: 2px solid rgba(255,255,255,0.2);">
                 <span>${message}</span>
             </div>
         `;
@@ -34,82 +54,57 @@ $(document).ready(function () {
         // Body'ye ekle
         $('body').append(toastHtml);
 
-        // Animasyon için kısa gecikme
+        // Animasyon için kısa gecikme - görünür yap
         setTimeout(function () {
-            $('.niki-toast').addClass('show');
+            $('.niki-toast').css({
+                'opacity': '1',
+                'transform': 'translateY(0) scale(1)'
+            });
         }, 50);
 
         // 4 saniye sonra kaldır
         setTimeout(function () {
-            $('.niki-toast').removeClass('show');
+            $('.niki-toast').css({
+                'opacity': '0',
+                'transform': 'translateY(20px) scale(0.9)'
+            });
             setTimeout(function () {
                 $('.niki-toast').remove();
-            }, 300);
+            }, 400);
         }, 4000);
 
         // Widget'ı da bounce animasyonu ile canlandır
-        $('#niki-floating-widget .niki-widget-content').addClass('niki-bounce');
-        setTimeout(function () {
-            $('#niki-floating-widget .niki-widget-content').removeClass('niki-bounce');
-        }, 500);
+        const $widget = $('#niki-floating-widget .niki-widget-content');
+        if ($widget.length) {
+            $widget.css('transform', 'scale(1.1)');
+            setTimeout(function () {
+                $widget.css('transform', 'scale(1)');
+            }, 300);
+        }
+
+        console.log('[Niki-Loyalty] Toast gösterildi:', message);
     }
 
     // Fonksiyonu global yap (Konsoldan test için)
     window.showNikiToast = showNikiToast;
 
     // -------------------------------------------------------------
-    // 🐱 FLOATING WIDGET (Sol Alt - Dinamik Oluşturma)
+    // 🐱 FLOATING WIDGET - DEVRE DIŞI
+    // Kullanıcı kendi custom widget'ını (duyuru baloncuklu) kullanıyor
+    // Bu nedenle client.js widget'ı oluşturmuyor
     // -------------------------------------------------------------
-    function createFloatingWidget() {
-        // Sadece giriş yapmış kullanıcılar için göster
-        if (!app.user || !app.user.uid) return;
 
-        // Widget zaten varsa oluşturma
-        if ($('#niki-floating-widget').length > 0) return;
-
-        // Logo URL
-        const logoUrl = (config && config.relative_path ? config.relative_path : '') + '/plugins/nodebb-plugin-niki-loyalty/static/logo.png';
-        const walletUrl = (config && config.relative_path ? config.relative_path : '') + '/niki-wallet';
-
-        // Widget HTML'i
-        const widgetHtml = `
-            <div id="niki-floating-widget">
-                <a href="${walletUrl}" class="niki-widget-content" id="niki-widget-link">
-                    <img src="${logoUrl}" alt="Niki" class="niki-widget-logo">
-                    <div class="niki-widget-text">
-                        <span class="niki-lbl">NİKİ PUAN</span>
-                        <span class="niki-val" id="widget-user-points">...</span>
-                    </div>
-                </a>
-            </div>
-        `;
-
-        // Body'ye ekle
-        $('body').append(widgetHtml);
-
-        // Widget'a tıklama olayı (SPA için ajaxify kullan)
-        $('#niki-widget-link').on('click', function (e) {
-            e.preventDefault();
-            if (typeof ajaxify !== 'undefined' && ajaxify.go) {
-                ajaxify.go('niki-wallet');
-            } else {
-                window.location.href = $(this).attr('href');
-            }
-        });
-
-        console.log('[Niki-Loyalty] Floating widget oluşturuldu.');
-
-        // İlk veriyi yükle
-        updateFloatingWidget();
-    }
-
-    // Floating Widget Puanını Güncelle
+    // Sadece puan güncelleme fonksiyonu (custom widget için)
     function updateFloatingWidget() {
-        if ($('#niki-floating-widget').length === 0) return;
+        // Custom widget'ta puan gösterimi varsa güncelle
+        if ($('#widget-user-points').length === 0) return;
+
+        // Kullanıcı giriş yapmamışsa API çağrısı yapma
+        if (!app.user || !app.user.uid) return;
 
         $.get('/api/niki-loyalty/wallet-data', function (data) {
             if (data && typeof data.points !== 'undefined') {
-                const points = Math.floor(data.points);
+                var points = Math.floor(data.points);
                 $('#widget-user-points').text(points);
                 console.log('[Niki-Loyalty] Widget puanı güncellendi:', points);
             }
@@ -118,22 +113,19 @@ $(document).ready(function () {
         });
     }
 
-    // Fonksiyonları global yap (Konsoldan test için)
-    window.createFloatingWidget = createFloatingWidget;
+    // Fonksiyonu global yap
     window.updateFloatingWidget = updateFloatingWidget;
 
-    // Sayfa yüklendiğinde widget oluştur (küçük gecikme ile - config hazır olsun)
+    // Sayfa yüklendiğinde sadece mevcut widget'ın puanını güncelle
     setTimeout(function () {
-        createFloatingWidget();
-    }, 500);
+        if (app.user && app.user.uid) {
+            updateFloatingWidget();
+        }
+    }, 1000);
 
-    // Her sayfa değişiminde widget'ı kontrol et ve güncelle
+    // Her sayfa değişiminde widget puanını güncelle
     $(window).on('action:ajaxify.end', function () {
-        // Widget yoksa oluştur
-        if ($('#niki-floating-widget').length === 0) {
-            createFloatingWidget();
-        } else {
-            // Varsa puanı güncelle
+        if (app.user && app.user.uid) {
             updateFloatingWidget();
         }
     });
@@ -195,8 +187,9 @@ $(document).ready(function () {
 
             // 30 Saniyede bir tetikle (Günde 8 limit var backendde)
             heartbeatInterval = setInterval(function () {
-                // Tarayıcı sekmesi aktif değilse gönderme (opsiyonel optimizasyon)
-                if (document.hidden) return;
+                if (document.hidden) return; // Sekme aktif değilse sayma
+
+                console.log('[Niki-Loyalty] 10dk doldu. Puan isteniyor...');
 
                 $.post('/api/niki-loyalty/heartbeat', {}, function (response) {
                     if (response && response.earned) {
@@ -205,9 +198,13 @@ $(document).ready(function () {
                             showNikiToast('Konu okuduğun için <strong style="color:#ffd700">+1 Puan</strong> kazandın! 🐈');
                         }
                         console.log('[Niki-Loyalty] Heartbeat başarılı. Yeni Puan:', response.total);
+                        // Widget'ı hemen güncelle
+                        updateSidebarWidget();
+                    } else {
+                        console.log('[Niki-Loyalty] Puan gelmedi (Günlük okuma limiti dolmuş olabilir).');
                     }
                 });
-            }, 30000); // 30.000 ms = 30 Saniye
+            }, 600000); // 10 Dakika = 600.000 ms
         }
 
         // ============================================================
@@ -248,7 +245,7 @@ $(document).ready(function () {
 
             let dailyScore = parseFloat(data.dailyScore);
             let scoreText = Number.isInteger(dailyScore) ? dailyScore : dailyScore.toFixed(1);
-            $('#widget-daily-text').text(scoreText + ' / 28');
+            $('#widget-daily-text').text(scoreText + ' / 35');
 
             // 3. DETAYLI SAYAÇLAR (Counts)
             const c = data.counts || {}; // Backend'den gelen sayaç objesi
@@ -268,10 +265,10 @@ $(document).ready(function () {
                 }
             }
 
-            // Tek Tek Güncelle
+            // Tek Tek Güncelle (library.js ACTIONS ile eşleştirildi)
             setProgress('w-count-new_topic', c.new_topic, 1, 'item-new-topic');
             setProgress('w-count-reply', c.reply, 2, 'item-reply');
-            setProgress('w-count-read', c.read, 8, 'item-read');
+            setProgress('w-count-read', c.read, 10, 'item-read');
 
             // Like (Alma ve Atma toplamı 4 limit demiştik, burada basitleştirip toplamı gösteriyoruz)
             // Backend'de like_given ve like_taken ayrı tutuluyor, ikisini toplayalım:
@@ -452,3 +449,4 @@ $(document).ready(function () {
         });
     }
 });
+
