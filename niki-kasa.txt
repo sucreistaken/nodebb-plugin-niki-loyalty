@@ -1,7 +1,3 @@
-<script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/locale/tr.min.js"></script>
-
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap');
 
@@ -590,7 +586,7 @@
             <button class="btn-hist" id="btn-open-history" onclick="niki_openHistory()"><i class="fa fa-history"></i>
                 İŞLEM GEÇMİŞİ</button>
         </div>
-        <p style="color:#666; font-size:20px; margin-top:20px;">Eğer butonlar çalışmazsa sayfayı yenileyiniz.</p>
+        <p id="niki-loading-hint" style="color:#666; font-size:13px; margin-top:20px;"></p>
     </div>
 
     <div id="camera-ui" class="camera-ui">
@@ -647,39 +643,69 @@
     (function () {
         'use strict';
 
-        // NOT: Sayfa ilk açıldığında zorla yenileme (reload) mantığı KALDIRILDI.
-        // Kullanıcı geri bildirimine göre bu durum butonların çalışmamasına yol açıyordu.
-
-        // niki-kasa'ya SPA geçişini engelleyip tam yükleme (hard redirect) yapma mantığını da
-        // kullanıcı "sonra hamburgerden basınca düzeliyor" dediği için şimdilik devre dışı bırakıyorum
-        // veya sadece bu blok kalsın ama otomatik window.reload() olmasın.
-
-        // Eğer SPA geçişlerinde sorun olursa burası tekrar açılabilir:
-        /*
-        $(window).on('action:ajaxify.start', function (e, data) {
-            if (data.url === 'niki-kasa') {
-                 // Gerekirse buraya hard redirect eklenebilir
+        // jQuery hazır olana kadar bekle
+        function waitAndInit() {
+            if (typeof $ === 'undefined' || typeof jQuery === 'undefined') {
+                setTimeout(waitAndInit, 100);
+                return;
             }
-        });
-        */
+            // Sadece kasa sayfasında çalış
+            if (window.location.pathname.indexOf('niki-kasa') === -1) {
+                return;
+            }
+            if (!$('#niki-pos-root').length) {
+                return;
+            }
+            initKasaModule();
+        }
+
+        function initKasaModule() {
+        // Kütüphaneleri dinamik yükle (CDN script tag'ları AJAX navigasyonda çalışmıyor)
+        function loadScript(url, check, callback) {
+            if (check()) return callback();
+            var s = document.createElement('script');
+            s.src = url;
+            s.onload = callback;
+            s.onerror = function () { console.error('[Niki-Kasa] Script yüklenemedi:', url); };
+            document.head.appendChild(s);
+        }
+
+        function loadDeps(callback) {
+            loadScript('https://unpkg.com/html5-qrcode', function () { return typeof Html5Qrcode !== 'undefined'; }, function () {
+                loadScript('https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment-with-locales.min.js', function () { return typeof moment !== 'undefined'; }, function () {
+                    moment.locale('tr');
+                    callback();
+                });
+            });
+        }
 
         var html5QrCode = null;
         var isProcessing = false;
         var sessionTimer = null;
         var allHistoryData = [];
-        moment.locale('tr');
+        var depsReady = false;
 
         // ------------------------------------------------------------------
         // GLOBAL FONKSİYONLAR (Inline OnClick için)
+        // Deps yüklenmeden çağrılırsa önce yükle sonra çalıştır
         // ------------------------------------------------------------------
-        window.niki_initSession = initSession;
+        function withDeps(fn) {
+            return function () {
+                if (depsReady) return fn.apply(this, arguments);
+                loadDeps(function () { depsReady = true; fn(); });
+            };
+        }
+        window.niki_initSession = withDeps(initSession);
         window.niki_stopSession = stopSession;
         window.niki_resumeScan = resumeScan;
-        window.niki_openHistory = openHistory;
+        window.niki_openHistory = withDeps(openHistory);
         window.niki_closeHistory = closeHistory;
         window.niki_applyHistFilter = applyHistFilter;
         window.niki_resetHistFilter = resetHistFilter;
         window.niki_exportHistCSV = exportHistCSV;
+
+        // Deps'leri sayfa açılır açılmaz arka planda yüklemeye başla
+        loadDeps(function () { depsReady = true; console.log('[Niki-Kasa] Kütüphaneler hazır.'); });
 
         function lockBody() { document.body.classList.add('niki-pos-lock'); }
         function unlockBody() { document.body.classList.remove('niki-pos-lock'); }
@@ -948,11 +974,11 @@
                 if (!item || typeof item !== 'object') return;
 
                 const cust = item.cust || 'Bilinmeyen';
-                const ts = item.ts ? moment(item.ts).fromNow() : '—';
+                const ts = item.ts ? (typeof moment !== 'undefined' ? moment(item.ts).fromNow() : new Date(item.ts).toLocaleString('tr-TR')) : '—';
                 const uid = item.cuid;
                 const reward = item.reward || 'İşlem';
 
-                const url = uid ? rpJoin('/uid/' + uid) : '#';
+                const url = item.profileUrl || (uid ? rpJoin('/uid/' + uid) : '#');
                 const avatarHtml = buildAvatar(item, 46);
 
                 const amtVal = (typeof item.amt === 'number' || typeof item.amt === 'string') ? item.amt : 250;
@@ -1002,5 +1028,9 @@
             closeHistory();
         });
 
+        } // end initKasaModule
+
+        // Başlat
+        waitAndInit();
     })();
 </script>

@@ -1,27 +1,39 @@
+const crypto = require('crypto');
 const db = require.main.require('./src/database');
 const user = require.main.require('./src/user');
 const posts = require.main.require('./src/posts');
 const routeHelpers = require.main.require('./src/controllers/helpers');
 const nconf = require.main.require('nconf');
+const meta = require.main.require('./src/meta');
 const socketHelpers = require.main.require('./src/socket.io/index');
 const SocketPlugins = require.main.require('./src/socket.io/plugins');
+const groups = require.main.require('./src/groups');
 const Plugin = {};
+
+// Ödül kullanabilecek gruplar
+const WALLET_GROUPS = ['Premium', 'Lite', 'VIP'];
 
 // =========================
 // ⚙️ AYARLAR & KURALLAR (GAME LOGIC)
 // =========================
 const SETTINGS = {
-  dailyCap: 35, // Günlük Maksimum Limit (Ne kadar kazanırsa kazansın buradan fazla alamaz)
+  dailyCap: 35, // Günlük Maksimum Limit
 };
 
 // Puan Tablosu ve Limitleri (Toplam Potansiyel ~45 Puan)
 const ACTIONS = {
-  login: { points: 5, limit: 1, name: 'Günlük Giriş 👋' },         // 5 Puan
-  new_topic: { points: 5, limit: 1, name: 'Yeni Konu 📝' },        // 5 Puan
-  reply: { points: 5, limit: 2, name: 'Yorum Yazma 💬' },          // 5 x 2 = 10 Puan
-  read: { points: 1, limit: 10, name: 'Konu Okuma 👀' },           // 1 x 10 = 10 Puan
-  like_given: { points: 2.5, limit: 2, name: 'Beğeni Atma ❤️' },   // 2.5 x 2 = 5 Puan
-  like_taken: { points: 5, limit: 2, name: 'Beğeni Alma 🌟' }      // 5 x 2 = 10 Puan
+  login: { points: 5, limit: 1, name: 'Günlük Giriş 👋' },           // 5 Puan
+  new_topic: { points: 5, limit: 1, name: 'Yeni Konu 📝' },          // 5 Puan
+  reply: { points: 5, limit: 2, name: 'Yorum Yazma 💬' },            // 5 x 2 = 10 Puan
+  read: { points: 1, limit: 10, name: 'Konu Okuma 👀' },             // 1 x 10 = 10 Puan
+  like_given: { points: 2.5, limit: 2, name: 'Beğeni Atma ❤️' },     // 2.5 x 2 = 5 Puan
+  like_taken: { points: 5, limit: 2, name: 'Beğeni Alma 🌟' }        // 5 x 2 = 10 Puan
+};
+
+// Grup Katılım Bonusları
+const GROUP_BONUSES = {
+  'Premium': 30,
+  'VIP': 60,
 };
 
 // Ödüller
@@ -33,6 +45,48 @@ const REWARDS = [
 ];
 
 const TEST_MODE_UNLIMITED = false;
+
+// =========================
+// 📦 AYARLARI DB'DEN YÜKLE
+// =========================
+async function loadAndApplySettings() {
+  try {
+    const saved = await new Promise((resolve) => {
+      meta.settings.get('niki-loyalty', (err, settings) => {
+        resolve(err ? {} : (settings || {}));
+      });
+    });
+
+    if (!saved || Object.keys(saved).length === 0) return;
+
+    // Genel
+    if (saved.dailyCap) SETTINGS.dailyCap = parseInt(saved.dailyCap, 10) || SETTINGS.dailyCap;
+
+    // Aksiyonlar
+    ['login', 'new_topic', 'reply', 'read', 'like_given', 'like_taken'].forEach(key => {
+      if (saved[key + '_points'] !== undefined && saved[key + '_points'] !== '')
+        ACTIONS[key].points = parseFloat(saved[key + '_points']);
+      if (saved[key + '_limit'] !== undefined && saved[key + '_limit'] !== '')
+        ACTIONS[key].limit = parseInt(saved[key + '_limit'], 10);
+    });
+
+    // Ödüller
+    for (let i = 0; i < REWARDS.length; i++) {
+      if (saved['reward' + i + '_name']) REWARDS[i].name = saved['reward' + i + '_name'];
+      if (saved['reward' + i + '_cost'] !== undefined && saved['reward' + i + '_cost'] !== '')
+        REWARDS[i].cost = parseInt(saved['reward' + i + '_cost'], 10);
+    }
+
+    // Grup Bonusları
+    if (saved.bonus_premium !== undefined && saved.bonus_premium !== '')
+      GROUP_BONUSES['Premium'] = parseInt(saved.bonus_premium, 10);
+    if (saved.bonus_vip !== undefined && saved.bonus_vip !== '')
+      GROUP_BONUSES['VIP'] = parseInt(saved.bonus_vip, 10);
+
+  } catch (err) {
+    console.error('[NIKI] Ayarlar yüklenirken hata:', err);
+  }
+}
 
 // =========================
 // 🛠 YARDIMCI FONKSİYONLAR
@@ -67,14 +121,13 @@ async function addKasaLog(staffUid, customerName, customerUid, rewardName, amoun
 
 // 🔥 MERKEZİ PUAN DAĞITIM FONKSİYONU 🔥
 // Bütün puan işlemleri buradan geçer, limitleri kontrol eder.
-// 🔥 MERKEZİ PUAN DAĞITIM FONKSİYONU 🔥
 async function awardDailyAction(uid, actionKey) {
   try {
     const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const rule = ACTIONS[actionKey];
 
     if (!rule) {
-      console.log(`[Niki-Loyalty] Bilinmeyen aksiyon: ${actionKey}`);
+
       return { success: false, reason: 'unknown_action' };
     }
 
@@ -82,7 +135,7 @@ async function awardDailyAction(uid, actionKey) {
     const dailyScoreKey = `niki:daily:${uid}:${today}`;
     const currentDailyScore = parseFloat((await db.getObjectField(dailyScoreKey, 'score')) || 0);
     if (currentDailyScore >= SETTINGS.dailyCap) {
-      console.log(`[Niki-Loyalty] Günlük limit doldu. UID: ${uid}, Score: ${currentDailyScore}`);
+
       return { success: false, reason: 'daily_cap_reached' };
     }
 
@@ -90,7 +143,7 @@ async function awardDailyAction(uid, actionKey) {
     const actionCountKey = `niki:daily:${uid}:${today}:counts`;
     const currentActionCount = parseInt((await db.getObjectField(actionCountKey, actionKey)) || 0, 10);
     if (currentActionCount >= rule.limit) {
-      console.log(`[Niki-Loyalty] Aksiyon limiti doldu. UID: ${uid}, Action: ${actionKey}, Count: ${currentActionCount}/${rule.limit}`);
+
       return { success: false, reason: 'action_limit_reached' };
     }
 
@@ -108,12 +161,14 @@ async function awardDailyAction(uid, actionKey) {
     await db.incrObjectFieldBy(dailyScoreKey, 'score', pointsToGive);
     await db.incrObjectFieldBy(actionCountKey, actionKey, 1);
 
+    // Günlük anahtarlara TTL koy (48 saat) - eski anahtarların birikmesini önle
+    await db.expire(dailyScoreKey, 172800);
+    await db.expire(actionCountKey, 172800);
+
     // Logla
     await addUserLog(uid, 'earn', pointsToGive, rule.name);
 
-    console.log(`[Niki-Loyalty] ✅ PUAN VERİLDİ! UID: ${uid}, Action: ${actionKey}, Points: +${pointsToGive}`);
-
-    // ✅ Kullanıcıya Bildirim Gönder (Socket Emit) - Güçlendirilmiş
+    // Kullanıcıya Bildirim Gönder (Socket Emit)
     try {
       if (socketHelpers && socketHelpers.server && socketHelpers.server.sockets) {
         const newTotal = parseFloat((await user.getUserField(uid, 'niki_points')) || 0);
@@ -122,18 +177,14 @@ async function awardDailyAction(uid, actionKey) {
           message: `${rule.name} işleminden <strong style="color:#ffd700">+${pointsToGive} Puan</strong> kazandın!`,
           newTotal: newTotal
         });
-        console.log(`[Niki-Loyalty] 📢 Socket bildirim gönderildi. UID: ${uid}`);
-      } else {
-        console.log(`[Niki-Loyalty] ⚠️ Socket server hazır değil, bildirim gönderilemedi.`);
       }
     } catch (socketErr) {
-      console.error(`[Niki-Loyalty] Socket emit hatası:`, socketErr.message);
     }
 
     return { success: true, points: pointsToGive };
 
   } catch (err) {
-    console.error(`[Niki-Loyalty] Error awarding points for ${actionKey}:`, err);
+
     return { success: false, reason: 'error', error: err.message };
   }
 }
@@ -171,70 +222,94 @@ Plugin.onPostCreate = async function (data) {
 // 4. BEĞENİ (Like Atma ve Alma) - Spam Korumalı + Debug Loglı
 // NodeBB upvote hook'u { pid, uid, ... } formatında data gönderir (post nesnesi değil!)
 Plugin.onUpvote = async function (data) {
-  console.log('[Niki-Loyalty] 👍 Upvote hook tetiklendi. Raw Data:', JSON.stringify(data));
-
-  // NodeBB bazen farklı formatlar gönderebilir, hepsini kontrol et
   const pid = data.pid || (data.post && data.post.pid);
   const voterUid = data.uid || (data.current && data.current.uid);
 
-  if (!pid) {
-    console.log('[Niki-Loyalty] ⚠️ Post PID bulunamadı, işlem iptal.');
-    return;
-  }
+  if (!pid || !voterUid) return;
 
-  if (!voterUid) {
-    console.log('[Niki-Loyalty] ⚠️ Voter UID bulunamadı, işlem iptal.');
-    return;
-  }
-
-  // Post sahibini bul (NodeBB upvote hook'u post sahibini göndermez!)
   let postOwnerUid;
   try {
     postOwnerUid = await posts.getPostField(pid, 'uid');
-    console.log(`[Niki-Loyalty] Post sahibi bulundu: PID=${pid}, Owner UID=${postOwnerUid}`);
   } catch (err) {
-    console.log('[Niki-Loyalty] ⚠️ Post sahibi bulunamadı:', err.message);
     return;
   }
-
-  if (!postOwnerUid) {
-    console.log('[Niki-Loyalty] ⚠️ Post sahibi UID boş, işlem iptal.');
-    return;
-  }
+  if (!postOwnerUid) return;
 
   const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
 
-  // Like Atan Kazanır:
+  // Like Atan Kazanır
   const likeGivenKey = `niki:liked:${voterUid}:${today}`;
   const alreadyLiked = await db.isSetMember(likeGivenKey, pid.toString());
 
-  console.log(`[Niki-Loyalty] Like Atan: UID=${voterUid}, PID=${pid}, Daha önce beğenmiş mi=${alreadyLiked}`);
-
   if (!alreadyLiked) {
-    const result = await awardDailyAction(voterUid, 'like_given');
-    console.log('[Niki-Loyalty] like_given sonuç:', result);
+    await awardDailyAction(voterUid, 'like_given');
     await db.setAdd(likeGivenKey, pid.toString());
     await db.expire(likeGivenKey, 86400);
   }
 
-  // Like Alan Kazanır (Post sahibi - kendine beğeni atamaz):
-  if (postOwnerUid && postOwnerUid !== voterUid) {
+  // Like Alan Kazanır (kendine beğeni atamaz)
+  if (postOwnerUid && String(postOwnerUid) !== String(voterUid)) {
     const likeTakenKey = `niki:liked_taken:${postOwnerUid}:${today}`;
     const alreadyTaken = await db.isSetMember(likeTakenKey, pid.toString());
 
-    console.log(`[Niki-Loyalty] Like Alan: UID=${postOwnerUid}, PID=${pid}, Daha önce puan almış mı=${alreadyTaken}`);
-
     if (!alreadyTaken) {
-      const result = await awardDailyAction(postOwnerUid, 'like_taken');
-      console.log('[Niki-Loyalty] like_taken sonuç:', result);
+      await awardDailyAction(postOwnerUid, 'like_taken');
       await db.setAdd(likeTakenKey, pid.toString());
       await db.expire(likeTakenKey, 86400);
     }
-  } else {
-    console.log('[Niki-Loyalty] ⚠️ Kullanıcı kendi postunu beğenmiş veya post sahibi bulunamadı. Post owner:', postOwnerUid, 'Voter:', voterUid);
   }
 };
 
+
+// 5. GRUP KATILIM BONUSU (Premium / VIP)
+Plugin.onGroupJoin = async function (data) {
+  try {
+    if (!data) return;
+
+    // NodeBB sürümüne göre groupName string veya array gelebilir
+    const groupNames = Array.isArray(data.groupName) ? data.groupName
+      : data.groupNames ? (Array.isArray(data.groupNames) ? data.groupNames : [data.groupNames])
+      : data.groupName ? [data.groupName]
+      : [];
+
+    // uid tek veya array olabilir (ACP toplu ekleme)
+    const uids = Array.isArray(data.uid) ? data.uid : data.uid ? [data.uid] : [];
+
+    for (const rawGroupName of groupNames) {
+      if (!rawGroupName) continue;
+
+      // Grup adını GROUP_BONUSES'da bul (case-insensitive)
+      let matchedGroup = null;
+      let bonus = 0;
+      for (const key of Object.keys(GROUP_BONUSES)) {
+        if (key.toLowerCase() === String(rawGroupName).toLowerCase()) {
+          matchedGroup = key;
+          bonus = GROUP_BONUSES[key];
+          break;
+        }
+      }
+      if (!matchedGroup || !bonus) continue;
+
+      for (const uid of uids) {
+        if (!uid) continue;
+
+        await user.incrementUserFieldBy(uid, 'niki_points', bonus);
+        await addUserLog(uid, 'earn', bonus, `${matchedGroup} Grubu Katılım Bonusu 🎉`);
+
+        try {
+          if (socketHelpers && socketHelpers.server && socketHelpers.server.sockets) {
+            socketHelpers.server.sockets.in('uid_' + uid).emit('event:niki_award', {
+              title: 'Grup Bonusu! 🎉',
+              message: `${matchedGroup} grubuna katıldığın için <strong style="color:#ffd700">+${bonus} Puan</strong> kazandın!`,
+            });
+          }
+        } catch (socketErr) {
+        }
+      }
+    }
+  } catch (err) {
+  }
+};
 
 // =========================
 // 🚀 INIT & ROUTES
@@ -243,16 +318,26 @@ Plugin.init = async function (params) {
   const router = params.router;
   const middleware = params.middleware;
 
+  // DB'den ayarları yükle
+  await loadAndApplySettings();
+
+  // ADMIN PANEL ROTALARI
+  function renderAdmin(req, res) {
+    res.render('admin/plugins/niki-loyalty', { title: 'Niki Loyalty Ayarları' });
+  }
+  router.get('/admin/plugins/niki-loyalty', middleware.admin.buildHeader, renderAdmin);
+  router.get('/api/admin/plugins/niki-loyalty', renderAdmin);
+
   // 1) HEARTBEAT (Artık "Okuma" Puanı veriyor)
   // Client-side script her 30-60 saniyede bir bu adrese istek atmalıdır.
   router.post('/api/niki-loyalty/heartbeat', middleware.ensureLoggedIn, async (req, res) => {
     try {
       const uid = req.uid;
       // Heartbeat geldiğinde "read" aksiyonunu tetikle
-      await awardDailyAction(uid, 'read');
+      const result = await awardDailyAction(uid, 'read');
 
       const newBalance = await user.getUserField(uid, 'niki_points');
-      return res.json({ earned: true, total: newBalance });
+      return res.json({ earned: result.success, total: newBalance });
     } catch (err) {
       return res.status(500).json({ error: 'error' });
     }
@@ -284,20 +369,24 @@ Plugin.init = async function (params) {
     }
   });
 
-  // 2) WALLET DATA (Cüzdan Bilgileri)
-  // 2) WALLET DATA (Sayaçlar Eklendi)
+  // 2) WALLET DATA (Cüzdan Bilgileri + Sayaçlar)
   router.get('/api/niki-loyalty/wallet-data', middleware.ensureLoggedIn, async (req, res) => {
     try {
       const uid = req.uid;
       const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
 
       // Veritabanından verileri çek
-      const [userData, dailyData, actionCounts, historyRaw] = await Promise.all([
+      const [userData, dailyData, actionCounts, historyRaw, memberChecks] = await Promise.all([
         user.getUserFields(uid, ['niki_points']),
         db.getObject(`niki:daily:${uid}:${today}`),
-        db.getObject(`niki:daily:${uid}:${today}:counts`), // <--- YENİ: Sayaçları çekiyoruz
+        db.getObject(`niki:daily:${uid}:${today}:counts`),
         db.getListRange(`niki:activity:${uid}`, 0, -1),
+        Promise.all(WALLET_GROUPS.map(g => groups.isMember(uid, g))),
       ]);
+
+      // Kullanıcı WALLET_GROUPS'dan herhangi birinde mi?
+      const canRedeem = memberChecks.some(Boolean);
+      const userGroup = canRedeem ? WALLET_GROUPS[memberChecks.indexOf(true)] : null;
 
       const dailyScore = parseFloat(dailyData?.score || 0);
       let dailyPercent = (dailyScore / SETTINGS.dailyCap) * 100;
@@ -310,9 +399,13 @@ Plugin.init = async function (params) {
         dailyScore,
         dailyCap: SETTINGS.dailyCap,
         dailyPercent,
-        counts: actionCounts || {}, // <--- YENİ: Frontend'e gönderiyoruz
+        counts: actionCounts || {},
+        actions: ACTIONS,
         history,
         rewards: REWARDS,
+        canRedeem,
+        userGroup,
+        walletGroups: WALLET_GROUPS,
       });
     } catch (err) {
       return res.status(500).json({ points: 0, history: [] });
@@ -423,7 +516,6 @@ Plugin.init = async function (params) {
         hasMore: enriched.length > 100
       });
     } catch (e) {
-      console.error('[Niki-Loyalty] Kasa history error:', e);
       return res.status(500).json({ error: 'Sunucu hatası' });
     }
   });
@@ -432,42 +524,67 @@ Plugin.init = async function (params) {
   router.post('/api/niki-loyalty/generate-qr', middleware.ensureLoggedIn, async (req, res) => {
     try {
       const uid = req.uid;
-      const points = parseFloat((await user.getUserField(uid, 'niki_points')) || 0);
-      const minCost = REWARDS[REWARDS.length - 1].cost; // En ucuz ödül
 
-      if (!TEST_MODE_UNLIMITED && points < minCost) {
-        return res.json({ success: false, message: `Yetersiz Puan. En az ${minCost} gerekli.` });
+      // Grup kontrolü
+      const memberChecks = await Promise.all(WALLET_GROUPS.map(g => groups.isMember(uid, g)));
+      if (!memberChecks.some(Boolean)) {
+        return res.json({ success: false, message: 'Ödül kullanmak için Premium, Lite veya VIP grubuna katılmalısın.' });
       }
-      const token = Math.random().toString(36).substring(2) + Date.now().toString(36);
-      await db.set(`niki:qr:${token}`, uid);
+
+      const rewardIndex = parseInt(req.body.rewardIndex, 10);
+      const points = parseFloat((await user.getUserField(uid, 'niki_points')) || 0);
+
+      // Seçilen ödülü bul
+      if (isNaN(rewardIndex) || rewardIndex < 0 || rewardIndex >= REWARDS.length) {
+        return res.json({ success: false, message: 'Geçersiz ödül seçimi.' });
+      }
+      const selectedReward = REWARDS[rewardIndex];
+
+      if (!TEST_MODE_UNLIMITED && points < selectedReward.cost) {
+        return res.json({ success: false, message: `Yetersiz Puan. ${selectedReward.name} için ${selectedReward.cost} puan gerekli.` });
+      }
+      const token = crypto.randomBytes(16).toString('hex');
+      // Token'a kullanıcı ve seçilen ödül bilgisini kaydet
+      await db.setObject(`niki:qr:${token}`, { uid: String(uid), rewardIndex: String(rewardIndex) });
       await db.expire(`niki:qr:${token}`, 120); // 2 dakika geçerli
-      return res.json({ success: true, token });
+      return res.json({ success: true, token, rewardName: selectedReward.name, rewardCost: selectedReward.cost });
     } catch (e) { return res.status(500).json({ success: false }); }
   });
 
   // 5) QR TARATMA (Kasa İşlemi)
   router.post('/api/niki-loyalty/scan-qr', middleware.ensureLoggedIn, async (req, res) => {
-    // ... (Mevcut kodunun aynısı)
     try {
       const token = req.body.token;
       const isAdmin = await user.isAdministrator(req.uid);
       const isMod = await user.isGlobalModerator(req.uid);
       if (!isAdmin && !isMod) return res.status(403).json({ success: false, message: 'Yetkisiz' });
 
-      const custUid = await db.get(`niki:qr:${token}`);
-      if (!custUid) return res.json({ success: false, message: 'Geçersiz Kod' });
+      const qrData = await db.getObject(`niki:qr:${token}`);
+      if (!qrData || !qrData.uid) return res.json({ success: false, message: 'Geçersiz Kod' });
 
+      const custUid = qrData.uid;
+      const rewardIndex = parseInt(qrData.rewardIndex, 10);
       const pts = parseFloat(await user.getUserField(custUid, 'niki_points') || 0);
 
       let selectedReward = null;
       if (!TEST_MODE_UNLIMITED) {
-        for (const r of REWARDS) {
-          if (pts >= r.cost) { selectedReward = r; break; }
+        // Token'daki ödül index'ini kullan
+        if (!isNaN(rewardIndex) && rewardIndex >= 0 && rewardIndex < REWARDS.length) {
+          selectedReward = REWARDS[rewardIndex];
+        } else {
+          // Fallback: en yüksek ödülü seç
+          for (const r of REWARDS) {
+            if (pts >= r.cost) { selectedReward = r; break; }
+          }
         }
         if (!selectedReward) return res.json({ success: false, message: 'Puan Yetersiz' });
       } else { selectedReward = REWARDS[0]; }
 
       if (!TEST_MODE_UNLIMITED) {
+        if (pts < selectedReward.cost) {
+          await db.delete(`niki:qr:${token}`);
+          return res.json({ success: false, message: 'Puan yetersiz, işlem iptal edildi.' });
+        }
         await user.decrementUserFieldBy(custUid, 'niki_points', selectedReward.cost);
       }
       await db.delete(`niki:qr:${token}`);
@@ -483,7 +600,7 @@ Plugin.init = async function (params) {
   // 6) SAYFA ROTALARI
   routeHelpers.setupPageRoute(router, '/niki-kasa', middleware, [], async (req, res) => {
     const isStaff = await user.isAdministrator(req.uid) || await user.isGlobalModerator(req.uid);
-    if (!isStaff) return res.render('403', {});
+    if (!isStaff) return routeHelpers.notAllowed(req, res);
     return res.render('niki-kasa', { title: 'Niki Kasa' });
   });
 
@@ -493,6 +610,15 @@ Plugin.init = async function (params) {
 Plugin.addScripts = async function (scripts) {
   scripts.push('plugins/nodebb-plugin-niki-loyalty/static/lib/client.js');
   return scripts;
+};
+
+Plugin.addAdminNavigation = async function (header) {
+  header.plugins.push({
+    route: '/plugins/niki-loyalty',
+    icon: 'fa-coffee',
+    name: 'Niki Loyalty',
+  });
+  return header;
 };
 
 Plugin.addNavigation = async function (nav) {
@@ -522,13 +648,11 @@ Plugin.adminGetUsers = async function (socket, data) {
 
     // TÜM kullanıcıları al (limit yok: -1)
     const uids = await db.getSortedSetRevRange('users:joindate', 0, -1);
-    console.log('[Niki-Admin] Çekilen UID sayısı:', uids ? uids.length : 0);
 
     if (!uids || uids.length === 0) return [];
 
     // Kullanıcı bilgilerini al
     const usersData = await user.getUsersFields(uids, ['uid', 'username', 'userslug', 'picture', 'niki_points', 'icon:bgColor']);
-    console.log('[Niki-Admin] Kullanıcı verisi alındı:', usersData ? usersData.length : 0);
 
     // Puanları işle ve sırala (puanı yüksek olan önce)
     const result = usersData
@@ -543,10 +667,8 @@ Plugin.adminGetUsers = async function (socket, data) {
       }))
       .sort((a, b) => b.points - a.points); // Yüksekten düşüğe sırala
 
-    console.log('[Niki-Admin] Döndürülen kullanıcı sayısı:', result.length);
     return result;
   } catch (err) {
-    console.error('[Niki-Admin] adminGetUsers HATA:', err.message);
     throw err;
   }
 };
@@ -569,20 +691,31 @@ Plugin.socketScanQR = async function (socket, data) {
   const token = data.token;
   if (!token) throw new Error('Geçersiz Token');
 
-  const custUid = await db.get(`niki:qr:${token}`);
-  if (!custUid) throw new Error('QR Kod Geçersiz veya Süresi Dolmuş');
+  const qrData = await db.getObject(`niki:qr:${token}`);
+  if (!qrData || !qrData.uid) throw new Error('QR Kod Geçersiz veya Süresi Dolmuş');
 
+  const custUid = qrData.uid;
+  const rewardIndex = parseInt(qrData.rewardIndex, 10);
   const pts = parseFloat((await user.getUserField(custUid, 'niki_points')) || 0);
 
   let selectedReward = null;
   if (!TEST_MODE_UNLIMITED) {
-    for (const r of REWARDS) {
-      if (pts >= r.cost) { selectedReward = r; break; }
+    if (!isNaN(rewardIndex) && rewardIndex >= 0 && rewardIndex < REWARDS.length) {
+      selectedReward = REWARDS[rewardIndex];
+    } else {
+      for (const r of REWARDS) {
+        if (pts >= r.cost) { selectedReward = r; break; }
+      }
     }
     if (!selectedReward) throw new Error('Puan Yetersiz');
   } else { selectedReward = REWARDS[0]; }
 
   if (!TEST_MODE_UNLIMITED) {
+    const currentPts = parseFloat(await user.getUserField(custUid, 'niki_points') || 0);
+    if (currentPts < selectedReward.cost) {
+      await db.delete(`niki:qr:${token}`);
+      throw new Error('Puan yetersiz, işlem iptal edildi.');
+    }
     await user.decrementUserFieldBy(custUid, 'niki_points', selectedReward.cost);
   }
   await db.delete(`niki:qr:${token}`);
@@ -651,7 +784,12 @@ Plugin.adminManagePoints = async function (socket, data) {
   if (action === 'add') {
     await user.incrementUserFieldBy(targetUid, 'niki_points', amount);
   } else if (action === 'remove') {
-    await user.decrementUserFieldBy(targetUid, 'niki_points', amount);
+    // Negatif bakiye kontrolü
+    const currentPts = parseFloat(await user.getUserField(targetUid, 'niki_points') || 0);
+    const deduction = Math.min(amount, currentPts);
+    if (deduction > 0) {
+      await user.decrementUserFieldBy(targetUid, 'niki_points', deduction);
+    }
   } else {
     throw new Error('Geçersiz işlem türü.');
   }
@@ -660,11 +798,14 @@ Plugin.adminManagePoints = async function (socket, data) {
   const adminUserData = await user.getUserFields(uid, ['username']);
   const logMsg = `Admin (${adminUserData.username}) tarafından ${action === 'add' ? '+' : '-'}${amount} puan. Sebep: ${reason}`;
 
-  await addUserLog(targetUid, 'admin_adjust', amount, logMsg);
+  // Negatif amount ile logla, böylece frontend doğru gösterebilir
+  const logAmount = action === 'remove' ? -amount : amount;
+  await addUserLog(targetUid, 'admin_adjust', logAmount, logMsg);
 
   // Denetim Logu
   const auditLog = { ts: Date.now(), adminUid: uid, adminName: adminUserData.username, targetUid: targetUid, action: action, amount: amount, reason: reason };
   await db.listAppend('niki:audit:admin_points', JSON.stringify(auditLog));
+  await db.listTrim('niki:audit:admin_points', -500, -1);
 
   const newPoints = await user.getUserField(targetUid, 'niki_points');
   return { success: true, newPoints: parseFloat(newPoints) };
@@ -700,16 +841,22 @@ Plugin.adminGetUserDetail = async function (socket, data) {
   const spendHistory = [];
 
   activities.forEach(a => {
-    if (a.type === 'earn' || a.type === 'admin_adjust') {
-      if (a.type === 'admin_adjust' && a.txt && a.txt.includes('-')) {
-        totalSpent += parseFloat(a.amt) || 0;
+    const amt = parseFloat(a.amt) || 0;
+    if (a.type === 'admin_adjust') {
+      // amt negatifse çıkarma, pozitifse ekleme (eski kayıtlarda text'e bakarak fallback)
+      const isDeduction = amt < 0 || (amt > 0 && a.txt && a.txt.includes('-'));
+      if (isDeduction) {
+        totalSpent += Math.abs(amt);
         spendHistory.push(a);
       } else {
-        totalEarned += parseFloat(a.amt) || 0;
+        totalEarned += amt;
         earnHistory.push(a);
       }
+    } else if (a.type === 'earn') {
+      totalEarned += amt;
+      earnHistory.push(a);
     } else if (a.type === 'spend') {
-      totalSpent += parseFloat(a.amt) || 0;
+      totalSpent += Math.abs(amt);
       spendHistory.push(a);
     }
   });
@@ -747,7 +894,8 @@ Plugin.adminGetUserDetail = async function (socket, data) {
       totalSpent,
       currentPoints: parseFloat(userData.niki_points || 0),
       todayScore: parseFloat((dailyData && dailyData.score) || 0),
-      todayCounts: actionCounts || {}
+      todayCounts: actionCounts || {},
+      dailyCap: SETTINGS.dailyCap
     },
     earnHistory: earnHistory.slice(0, 30),
     spendHistory: spendHistory.slice(0, 30),
@@ -804,6 +952,16 @@ Plugin.adminGetStats = async function (socket, data) {
   };
 };
 
+// 6) AYARLARI YENİDEN YÜKLE (Admin panelden kaydet sonrası)
+Plugin.reloadSettings = async function (socket) {
+  const uid = socket.uid;
+  if (!uid) throw new Error('Giriş yapmalısınız.');
+  const isAdmin = await user.isAdministrator(uid);
+  if (!isAdmin) throw new Error('Yetkisiz Erişim');
+  await loadAndApplySettings();
+  return { success: true };
+};
+
 // Soket'e kaydet (Client: socket.emit('plugins.niki.getUsers', ...))
 if (SocketPlugins) {
   SocketPlugins.niki = {
@@ -812,7 +970,8 @@ if (SocketPlugins) {
     getStats: Plugin.adminGetStats,
     scanQR: Plugin.socketScanQR,
     getKasaHistory: Plugin.socketKasaHistory,
-    managePoints: Plugin.adminManagePoints
+    managePoints: Plugin.adminManagePoints,
+    reloadSettings: Plugin.reloadSettings
   };
 }
 

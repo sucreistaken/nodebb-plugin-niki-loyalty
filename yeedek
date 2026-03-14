@@ -1,0 +1,313 @@
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;500;700;800&display=swap');
+
+  .niki-wallet-wrapper{
+    max-width:380px;margin:40px auto;background:#FFF;
+    border-radius:30px;box-shadow:0 20px 60px rgba(0,0,0,0.08);
+    overflow:hidden;text-align:center;position:relative;
+    font-family:'Poppins',sans-serif;border:1px solid #F0F0F0;
+  }
+
+  .niki-header-bg{background:#1a1a1a;height:140px;width:100%;position:absolute;top:0;left:0;border-radius:0 0 40px 40px;}
+  .niki-content{position:relative;z-index:1;padding:30px;padding-top:70px;}
+
+  .niki-avatar{width:110px;height:110px;border-radius:50%;background:#fff;margin:0 auto 15px;border:5px solid #fff;box-shadow:0 10px 30px rgba(0,0,0,0.1);display:flex;align-items:center;justify-content:center;position:relative;}
+  .niki-avatar img{width:100%;height:100%;object-fit:cover;border-radius:50%;}
+
+  .niki-balance-big{font-size:60px;font-weight:800;color:#1a1a1a;line-height:1;margin-bottom:5px;letter-spacing:-2px;}
+  .niki-label{color:#999;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-bottom:25px;}
+
+  .niki-bar-box{background:#FAFAFA;border-radius:20px;padding:25px 20px 40px;margin:25px 0;border:1px solid #EEE;position:relative;}
+  .niki-track{background:#E0E0E0;height:12px;border-radius:10px;width:100%;margin:15px 0;position:relative;}
+  .niki-fill{height:100%;background:#C5A065;width:0%;transition:width 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);border-radius:10px;box-shadow:0 0 10px rgba(197,160,101,0.4);}
+
+  .tier-dot{position:absolute;top:50%;transform:translate(-50%,-50%);width:12px;height:12px;background:#fff;border:3px solid #ccc;border-radius:50%;z-index:2;transition:all 0.3s;}
+  .tier-dot.reached{border-color:#C5A065;background:#C5A065;}
+
+  .tier-label{position:absolute;top:18px;transform:translateX(-50%);font-size:9px;color:#aaa;font-weight:600;width:60px;text-align:center;line-height:1.1;}
+  .tier-dot.reached + .tier-label{color:#C5A065;}
+
+  .niki-btn{
+    background:#1a1a1a;color:#fff;width:100%;padding:20px;
+    border-radius:18px;font-size:14px;font-weight:700;border:none;
+    cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;
+    transition:transform 0.2s, box-shadow 0.2s;
+  }
+  .niki-btn:active{transform:scale(0.95);}
+  .niki-btn:disabled{background:#E0E0E0;color:#AAA;cursor:not-allowed;}
+
+  .qr-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(10,10,10,0.95);z-index:10000;display:none;align-items:center;justify-content:center;backdrop-filter:blur(10px);}
+  .ticket-card{background:#fff;width:320px;border-radius:30px;overflow:hidden;text-align:center;position:relative;animation:cardPop 0.4s cubic-bezier(0.175,0.885,0.32,1.275);box-shadow:0 0 0 8px rgba(255,255,255,0.1),0 30px 80px rgba(0,0,0,0.8);}
+  @keyframes cardPop{from{transform:scale(0.8) translateY(50px);opacity:0;}to{transform:scale(1) translateY(0);opacity:1;}}
+
+  .ticket-top{background:#1a1a1a;padding:25px;color:#C5A065;font-weight:700;letter-spacing:2px;font-size:14px;}
+  .ticket-body{padding:40px 30px;position:relative;}
+  #qrcode{display:flex;justify-content:center;margin-bottom:30px;}
+  #qrcode img{border:10px solid #fff;border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,0.1);}
+  .timer-wrapper{width:100%;height:6px;background:#eee;border-radius:10px;overflow:hidden;margin-top:10px;}
+  .timer-bar{height:100%;background:#C5A065;width:100%;transition:width 1s linear;}
+  .timer-text{font-size:12px;color:#888;margin-top:8px;font-weight:600;}
+  .close-circle{position:absolute;top:15px;right:15px;width:30px;height:30px;background:rgba(255,255,255,0.2);border-radius:50%;color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:14px;transition:background 0.2s;}
+  .close-circle:hover{background:rgba(255,255,255,0.4);}
+
+  .success-view{display:none;padding:40px 20px;}
+  .success-icon{width:100px;height:100px;background:#2E7D32;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:50px;margin:0 auto 20px;box-shadow:0 10px 30px rgba(46,125,50,0.3);animation:popCheck 0.5s ease;}
+  @keyframes popCheck{0%{transform:scale(0);}80%{transform:scale(1.1);}100%{transform:scale(1);}}
+</style>
+
+<div class="niki-wallet-wrapper" id="niki-wallet-root">
+  <div class="niki-header-bg"></div>
+
+  <div class="niki-content">
+    <div class="niki-avatar"><img src="" id="niki-logo-main"></div>
+    <div class="niki-balance-big" id="my-points">...</div>
+    <div class="niki-label">MEVCUT PUAN</div>
+
+    <div class="niki-bar-box">
+      <div style="display:flex; justify-content:space-between; font-size:12px; font-weight:700; color:#1a1a1a;">
+        <span>HEDEFLER</span><span id="target-txt">250</span>
+      </div>
+
+      <div class="niki-track">
+        <div class="niki-fill" id="prog-bar"></div>
+
+        <div class="tier-dot" id="dot-1" style="left:24%;"></div>
+        <div class="tier-label" style="left:24%;">Kurabiye</div>
+
+        <div class="tier-dot" id="dot-2" style="left:48%;"></div>
+        <div class="tier-label" style="left:48%;">%30 İnd.</div>
+
+        <div class="tier-dot" id="dot-3" style="left:72%;"></div>
+        <div class="tier-label" style="left:72%;">%60 İnd.</div>
+
+        <div class="tier-dot" id="dot-4" style="left:100%;"></div>
+        <div class="tier-label" style="left:100%;">Kahve</div>
+      </div>
+
+      <div style="font-size:10px; color:#aaa; margin-top:25px; text-align:center;">Ödüller Niki Kasasından alınır</div>
+      <div style="font-size:10px; color:#aaa; margin-top:25px; text-align:center;">Kurabiye Ödülü kahvenin yanında ücretsizdir</div>
+    </div>
+
+    <button id="btn-qr" class="niki-btn" onclick="openQR()" disabled>
+      <i class="fa fa-lock"></i> PUAN YETERSİZ
+    </button>
+
+    <div style="margin-top:25px; font-size:10px; color:#ccc;">
+      NIKI THE CAT COFFEE &copy; LOYALTY
+    </div>
+  </div>
+</div>
+
+<div id="modal-qr" class="qr-overlay">
+  <div class="ticket-card">
+    <div class="close-circle" onclick="closeQR()"><i class="fa fa-times"></i></div>
+
+    <div id="view-code">
+      <div class="ticket-top">KASAYA GÖSTERİNİZ</div>
+      <div class="ticket-body">
+        <div id="qrcode"></div>
+        <div style="font-size:14px; font-weight:700; color:#1a1a1a; margin-top:10px;">TARANIYOR...</div>
+        <div class="timer-wrapper"><div class="timer-bar" id="time-bar"></div></div>
+        <div class="timer-text" id="timer-txt">2:00</div>
+      </div>
+    </div>
+
+    <div id="view-success" class="success-view">
+      <div class="success-icon"><i class="fa fa-check"></i></div>
+      <h2 style="font-size:24px; color:#1a1a1a; margin-bottom:10px;">AFİYET OLSUN!</h2>
+      <p style="color:#888; font-size:14px; margin-bottom:20px;">Ödeme alındı, ödülün verildi.</p>
+      <button class="niki-btn" onclick="closeQR()" style="padding:15px; font-size:14px;">TAMAM</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const MAX_GOAL = 250;
+  const TIERS = [
+    { cost: 60,  name: "Kurabiye" },
+    { cost: 120, name: "%30 İndirim" },
+    { cost: 180, name: "%60 İndirim" },
+    { cost: 250, name: "Ücretsiz Kahve" }
+  ];
+
+  let pollInterval = null;
+  let initialPoints = 0;
+
+  // ✅ tek seferde bir kere çalıştırmayı garanti etmek için
+  let walletBooted = false;
+
+  function resetDots() {
+    $('#dot-1,#dot-2,#dot-3,#dot-4').removeClass('reached');
+  }
+
+  function safeLoadData() {
+    // DOM hazır değilse kaç
+    if (!$('#niki-wallet-root').length) return;
+
+    const logoUrl = (config && config.relative_path ? config.relative_path : '') + "/plugins/nodebb-plugin-niki-loyalty/static/logo.png";
+    $("#niki-logo-main").attr("src", logoUrl);
+
+    $.get('/api/niki-loyalty/wallet-data')
+      .done(function(data) {
+        const p = parseInt(data && data.points, 10) || 0;
+        initialPoints = p;
+
+        $('#my-points').text(p);
+
+        resetDots();
+
+        let pct = (p / MAX_GOAL) * 100;
+        if (pct > 100) pct = 100;
+        $('#prog-bar').css('width', '0%');
+        setTimeout(() => { $('#prog-bar').css('width', pct + '%'); }, 60);
+
+        if (p >= 60)  $('#dot-1').addClass('reached');
+        if (p >= 120) $('#dot-2').addClass('reached');
+        if (p >= 180) $('#dot-3').addClass('reached');
+        if (p >= 250) $('#dot-4').addClass('reached');
+
+        let bestReward = null;
+        for (let i = TIERS.length - 1; i >= 0; i--) {
+          if (p >= TIERS[i].cost) { bestReward = TIERS[i]; break; }
+        }
+
+        const btn = $('#btn-qr');
+        if (bestReward) {
+          btn.prop('disabled', false)
+            .css('background', '#1a1a1a')
+            .html('<i class="fa fa-qrcode"></i> KULLAN: ' + String(bestReward.name).toUpperCase());
+        } else {
+          btn.prop('disabled', true)
+            .css('background', '#E0E0E0')
+            .html('<i class="fa fa-lock"></i> ' + (60 - p) + ' PUAN EKSİK');
+        }
+      })
+      .fail(function() {
+        // sayfa geçiş anında ajaxify sırasında bazen patlıyor -> tekrar dene
+        setTimeout(() => {
+          if ($('#niki-wallet-root').length) safeLoadData();
+        }, 250);
+      });
+  }
+
+  function bootWallet() {
+    if (walletBooted) return;
+    walletBooted = true;
+
+    // ilk yükleme
+    safeLoadData();
+
+    // ajaxify her sayfa bitişinde: bu sayfadaysak yeniden yükle
+    $(window).on('action:ajaxify.end.nikiWallet', function() {
+      if (window.location.pathname.indexOf('niki-wallet') > -1) {
+        safeLoadData();
+      }
+    });
+
+    // bazı temalarda end gelmeyebiliyor -> content loaded'da da garanti
+    $(window).on('action:topic.loaded.nikiWallet action:widgets.loaded.nikiWallet action:ajaxify.contentLoaded.nikiWallet', function() {
+      if (window.location.pathname.indexOf('niki-wallet') > -1) {
+        safeLoadData();
+      }
+    });
+  }
+
+  function openQR() {
+    if(!confirm("Mevcut puanınla alabileceğin EN YÜKSEK ödül kullanılacak. Onaylıyor musun?")) return;
+
+    $.post('/api/niki-loyalty/generate-qr', { _csrf: config.csrf_token }, function(res) {
+      if (res && res.success) {
+        $('#modal-qr').fadeIn(200).css('display', 'flex');
+        $('#view-code').show(); $('#view-success').hide();
+        $('#qrcode').empty();
+
+        new QRCode(document.getElementById("qrcode"), {
+          text: res.token,
+          width: 260, height: 260,
+          colorDark : "#000000", colorLight : "#ffffff",
+          correctLevel : QRCode.CorrectLevel.L
+        });
+
+        startTimer(120);
+        startPolling();
+      } else {
+        app.alertError(res && res.message ? res.message : 'Hata');
+      }
+    });
+  }
+
+  function startPolling() {
+    clearInterval(pollInterval);
+    pollInterval = setInterval(() => {
+      // modal kapandıysa polling yapma
+      if (!$('#modal-qr').is(':visible')) { clearInterval(pollInterval); return; }
+
+      $.get('/api/niki-loyalty/wallet-data', function(data) {
+        const currentP = parseInt(data && data.points, 10) || 0;
+        if (currentP < initialPoints) {
+          clearInterval(pollInterval);
+          showSuccess();
+        }
+      });
+    }, 2000);
+  }
+
+  function showSuccess() {
+    $('#view-code').hide();
+    $('#view-success').fadeIn(300);
+    confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 }, colors: ['#C5A065', '#1a1a1a', '#ffffff'] });
+    try { new Audio('https://freesound.org/data/previews/171/171671_2437358-lq.mp3').play(); } catch(e){}
+  }
+
+  function startTimer(duration) {
+    let timer = duration;
+    $('#time-bar').css('width', '100%');
+
+    const countdown = setInterval(function() {
+      if (!$('#modal-qr').is(':visible') || $('#view-success').is(':visible')) {
+        clearInterval(countdown); return;
+      }
+
+      const minutes = Math.floor(timer / 60);
+      const seconds = timer % 60;
+      $('#timer-txt').text(minutes + ":" + (seconds < 10 ? "0" + seconds : seconds));
+
+      const pct = (timer / duration) * 100;
+      $('#time-bar').css('width', pct + '%');
+
+      timer--;
+      if (timer < 0) {
+        clearInterval(countdown);
+        closeQR();
+        app.alertError("Süre doldu.");
+      }
+    }, 1000);
+  }
+
+  function closeQR() {
+    $('#modal-qr').fadeOut(200);
+    clearInterval(pollInterval);
+    pollInterval = null;
+
+    // modal kapandıktan sonra cüzdanı tekrar yükle
+    setTimeout(safeLoadData, 200);
+  }
+
+  // ✅ NodeBB ajaxify: sayfa bu template'e geldiğinde boot edelim
+  $(window).on('action:ajaxify.end', function() {
+    if (window.location.pathname.indexOf('niki-wallet') > -1) {
+      walletBooted = false; // route tekrar gelince boot tekrar çalışsın
+      bootWallet();
+    }
+  });
+
+  // ✅ ilk açılış (refresh / direkt url)
+  $(document).ready(function() {
+    if (window.location.pathname.indexOf('niki-wallet') > -1) {
+      bootWallet();
+    }
+  });
+</script>

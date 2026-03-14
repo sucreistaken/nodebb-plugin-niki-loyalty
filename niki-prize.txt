@@ -1,0 +1,200 @@
+<div class="niki-premium-widget">
+    <div class="widget-header">
+        <div class="header-top">
+            <div class="title-group">
+                <i class="fa fa-diamond gold-icon"></i>
+                <span class="widget-title">GÜNLÜK HEDEF</span>
+            </div>
+            <span class="points-badge" id="widget-user-points">0 ⭐</span>
+        </div>
+        
+        <div class="progress-container">
+            <div class="progress-bar-bg">
+                <div class="progress-bar-fill" id="widget-daily-progress" style="width: 0%;"></div>
+            </div>
+            <div class="progress-text">
+                <span id="widget-daily-text" class="status-text">0/35 Puan</span>
+                <span class="target">Hedef: 35</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="widget-list">
+        <div class="list-item" id="item-login">
+            <div class="icon-box purple-theme"><i class="fa fa-sign-in"></i></div>
+            <div class="item-details">
+                <span class="item-name">Günlük Giriş 👋</span>
+                <span class="item-sub" id="w-count-login">0/1 Giriş</span>
+            </div>
+            <div class="item-reward">+5</div>
+        </div>
+
+        <div class="list-item" id="item-new-topic">
+            <div class="icon-box blue-theme"><i class="fa fa-pencil"></i></div>
+            <div class="item-details">
+                <span class="item-name">Yeni Konu 📝</span>
+                <span class="item-sub" id="w-count-new_topic">0/1 Konu</span>
+            </div>
+            <div class="item-reward">+5</div>
+        </div>
+
+        <div class="list-item" id="item-reply">
+            <div class="icon-box green-theme"><i class="fa fa-commenting"></i></div>
+            <div class="item-details">
+                <span class="item-name">Yorum Yazma 💬</span>
+                <span class="item-sub" id="w-count-reply">0/2 Yorum</span>
+            </div>
+            <div class="item-reward">+5</div>
+        </div>
+
+        <div class="list-item" id="item-read">
+            <div class="icon-box orange-theme"><i class="fa fa-book"></i></div>
+            <div class="item-details">
+                <span class="item-name">Konu Okuma 👀</span>
+                <span class="item-sub" id="w-count-read">0/10 Okuma</span>
+            </div>
+            <div class="item-reward">+1</div>
+        </div>
+
+        <div class="list-item" id="item-like">
+            <div class="icon-box pink-theme"><i class="fa fa-heart"></i></div>
+            <div class="item-details">
+                <span class="item-name">Beğeni Etkileşimi ❤️🌟</span>
+                <span class="item-sub" id="w-count-like">0/2 Beğeni</span>
+            </div>
+            <div class="item-reward">+2.5 / +5</div>
+        </div>
+    </div>
+
+    <a href="/niki-wallet" class="widget-footer-btn">
+        Cüzdanı Görüntüle <i class="fa fa-chevron-right"></i>
+    </a>
+
+
+
+<style>
+/* =========================================
+   TEMAYA DUYARLI PREMIUM CSS
+   ========================================= */
+
+/* 1. Varsayılan (LIGHT MODE) Değişkenleri */
+.niki-premium-widget {
+    --w-bg: #ffffff;
+    --w-border: #e9ecef;
+    --w-text-main: #333333;
+    --w-text-sub: #888888;
+    --w-hover: #f8f9fa;
+    --w-header-bg: #f8f9fa;
+    --w-progress-bg: #e0e0e0;
+    --w-footer-bg: #ffffff;
+    --w-footer-text: #666666;
+    --w-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    
+    background: var(--w-bg);
+    border: 1px solid var(--w-border);
+    border-radius: 12px;
+    font-family: -apple-system, system-ui, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: var(--w-text-main);
+    overflow: hidden;
+    box-shadow: var(--w-shadow);
+    margin-bottom: 20px;
+    transition: all 0.3s ease;
+}
+
+/* 2. DARK MODE (Otomatik Algılama) */
+/* NodeBB genellikle body'ye 'skin-dark' veya 'dark' classı ekler. Ayrıca medya sorgusu ekledik. */
+@media (prefers-color-scheme: dark), body.skin-dark, body.dark-mode, html.dark {
+    .niki-premium-widget {
+        --w-bg: #1e1e1e;           /* Tema ile uyumlu koyu gri */
+        --w-border: #333333;       /* İnce koyu çizgi */
+        --w-text-main: #e0e0e0;    /* Açık gri metin */
+        --w-text-sub: #999999;     /* Alt metin */
+        --w-hover: #252525;        /* Hover rengi */
+        --w-header-bg: #222222;    /* Header koyu */
+        --w-progress-bg: #333333;
+        --w-footer-bg: #1e1e1e;
+        --w-footer-text: #aaaaaa;
+        --w-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    }
+}
+
+/* --- HEADER --- */
+.widget-header {
+    background: var(--w-header-bg);
+    padding: 16px;
+    border-bottom: 1px solid var(--w-border);
+}
+.header-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.title-group { display: flex; align-items: center; gap: 8px; }
+.gold-icon { color: #ffd700; font-size: 14px; }
+.widget-title { font-weight: 700; font-size: 12px; letter-spacing: 1px; text-transform: uppercase; color: var(--w-text-sub); }
+.points-badge {
+    background: rgba(255, 215, 0, 0.15); color: #ffd700;
+    padding: 3px 8px; border-radius: 6px; font-size: 13px; font-weight: 800;
+}
+
+/* --- PROGRESS BAR --- */
+.progress-bar-bg {
+    height: 6px; background: var(--w-progress-bg);
+    border-radius: 3px; overflow: hidden; margin-bottom: 6px;
+}
+.progress-bar-fill {
+    height: 100%; background: linear-gradient(90deg, #ffd700, #ffaa00);
+    border-radius: 3px; transition: width 0.6s ease;
+}
+.progress-text { display: flex; justify-content: space-between; font-size: 11px; color: var(--w-text-sub); }
+
+/* --- LİSTE ÖGELERİ --- */
+.widget-list { padding: 4px 0; }
+.list-item {
+    display: flex; align-items: center; padding: 12px 16px;
+    border-bottom: 1px solid var(--w-border);
+    transition: background 0.2s;
+}
+.list-item:last-child { border-bottom: none; }
+.list-item:hover { background: var(--w-hover); }
+
+/* İkon Kutuları (Şeffaf & Temiz) */
+.icon-box {
+    width: 34px; height: 34px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    margin-right: 14px; font-size: 14px; flex-shrink: 0;
+}
+
+/* İkon Renk Temaları */
+.blue-theme   { background: rgba(33, 150, 243, 0.1); color: #2196f3; }
+.green-theme  { background: rgba(76, 175, 80, 0.1);  color: #4caf50; }
+.orange-theme { background: rgba(255, 152, 0, 0.1);  color: #ff9800; }
+.pink-theme   { background: rgba(233, 30, 99, 0.1);  color: #e91e63; }
+.purple-theme { background: rgba(156, 39, 176, 0.1); color: #9c27b0; }
+
+/* Detaylar */
+.item-details { flex-grow: 1; display: flex; flex-direction: column; }
+.item-name { font-size: 13px; font-weight: 600; color: var(--w-text-main); margin-bottom: 2px; }
+.item-sub { font-size: 11px; color: var(--w-text-sub); transition: color 0.3s; }
+
+/* Ödül Puanı */
+.item-reward {
+    font-weight: 700; font-size: 12px; color: #ffd700;
+    background: rgba(255, 215, 0, 0.08); padding: 4px 8px;
+    border-radius: 6px; white-space: nowrap;
+}
+
+/* Footer Buton */
+.widget-footer-btn {
+    display: flex; justify-content: center; align-items: center;
+    padding: 14px; background: var(--w-footer-bg);
+    color: var(--w-footer-text); text-decoration: none;
+    font-size: 12px; font-weight: 600;
+    border-top: 1px solid var(--w-border);
+    text-transform: uppercase; letter-spacing: 0.5px;
+    transition: all 0.2s;
+}
+.widget-footer-btn:hover { background: var(--w-hover); color: var(--w-text-main); }
+
+/* --- TAMAMLANMIŞ GÖREV STİLİ --- */
+.list-item.completed { opacity: 0.6; }
+.list-item.completed .item-name { text-decoration: line-through; color: var(--w-text-sub); }
+.list-item.completed .item-sub { color: #4caf50; font-weight: bold; }
+.list-item.completed .icon-box { filter: grayscale(1); opacity: 0.5; }
+</style>

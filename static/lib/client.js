@@ -1,6 +1,6 @@
 'use strict';
 
-/* globals $, app, socket, ajaxify, utils */
+/* globals $, app, socket, ajaxify, utils, config */
 
 $(document).ready(function () {
     let heartbeatInterval = null;
@@ -82,7 +82,6 @@ $(document).ready(function () {
             }, 300);
         }
 
-        console.log('[Niki-Loyalty] Toast gösterildi:', message);
     }
 
     // Fonksiyonu global yap (Konsoldan test için)
@@ -90,11 +89,10 @@ $(document).ready(function () {
 
     // -------------------------------------------------------------
     // 🐱 FLOATING WIDGET - DEVRE DIŞI
-    // Kullanıcı kendi custom widget'ını (duyuru baloncuklu) kullanıyor
-    // Bu nedenle client.js widget'ı oluşturmuyor
+    // Widget NodeBB widget sisteminden elle ekleniyor
     // -------------------------------------------------------------
 
-    // Sadece puan güncelleme fonksiyonu (custom widget için)
+    // Sadece puan güncelleme fonksiyonu
     function updateFloatingWidget() {
         // Custom widget'ta puan gösterimi varsa güncelle
         if ($('#widget-user-points').length === 0) return;
@@ -106,29 +104,22 @@ $(document).ready(function () {
             if (data && typeof data.points !== 'undefined') {
                 var points = Math.floor(data.points);
                 $('#widget-user-points').text(points);
-                console.log('[Niki-Loyalty] Widget puanı güncellendi:', points);
             }
         }).fail(function () {
-            console.log('[Niki-Loyalty] Widget puanı yüklenemedi.');
         });
     }
-
     // Fonksiyonu global yap
     window.updateFloatingWidget = updateFloatingWidget;
 
-    // Sayfa yüklendiğinde sadece mevcut widget'ın puanını güncelle
-    setTimeout(function () {
-        if (app.user && app.user.uid) {
-            updateFloatingWidget();
-        }
-    }, 1000);
+    // Login sonrası redirect sorununu önlemek için erken API çağrısı yapma
+    var isJustLoggedIn = window.location.search.includes('loggedin');
 
-    // Her sayfa değişiminde widget puanını güncelle
-    $(window).on('action:ajaxify.end', function () {
-        if (app.user && app.user.uid) {
+    // Sayfa yüklendiğinde widget puanını güncelle (login değilse)
+    setTimeout(function () {
+        if (app.user && app.user.uid && !isJustLoggedIn) {
             updateFloatingWidget();
         }
-    });
+    }, 2000);
 
     // -------------------------------------------------------------
     // 🌅 GÜNLÜK GİRİŞ KONTROLÜ (Session açık olsa bile puan ver)
@@ -149,11 +140,10 @@ $(document).ready(function () {
         }
 
         // Backend'e günlük giriş kontrolü isteği at
-        $.post('/api/niki-loyalty/daily-checkin', {}, function (response) {
+        $.post('/api/niki-loyalty/daily-checkin', { _csrf: config.csrf_token }, function (response) {
             if (response && response.success) {
                 // Puan kazanıldı! Bildirim göster
-                showNikiToast('Günlük giriş için <strong style="color:#ffd700">+2 Puan</strong> kazandın! 👋');
-                console.log('[Niki-Loyalty] Günlük giriş puanı alındı. Yeni Toplam:', response.total);
+                showNikiToast('Günlük giriş için <strong style="color:#ffd700">+' + response.earned + ' Puan</strong> kazandın! 👋');
 
                 // Widget'ı güncelle
                 if (typeof updateSidebarWidget === 'function') {
@@ -164,7 +154,6 @@ $(document).ready(function () {
             localStorage.setItem(storageKey, today);
         }).fail(function () {
             // Hata durumunda sessizce devam et
-            console.log('[Niki-Loyalty] Günlük giriş kontrolü başarısız.');
         });
     }
 
@@ -182,48 +171,64 @@ $(document).ready(function () {
         // ❤️ KONU OKUMA (HEARTBEAT) SİSTEMİ
         // ============================================================
         // Sadece 'topic' (konu) sayfasındaysak sayaç çalışsın.
-        if (ajaxify.data.template.name === 'topic') {
-            console.log('[Niki-Loyalty] Konu sayfası algılandı, sayaç başlatılıyor...');
+        if (ajaxify.data && ajaxify.data.template && ajaxify.data.template.name === 'topic') {
 
-            // 30 Saniyede bir tetikle (Günde 8 limit var backendde)
+            // 10 Dakikada bir tetikle (Günde 10 limit var backendde)
             heartbeatInterval = setInterval(function () {
                 if (document.hidden) return; // Sekme aktif değilse sayma
 
-                console.log('[Niki-Loyalty] 10dk doldu. Puan isteniyor...');
 
-                $.post('/api/niki-loyalty/heartbeat', {}, function (response) {
+                $.post('/api/niki-loyalty/heartbeat', { _csrf: config.csrf_token }, function (response) {
                     if (response && response.earned) {
                         // Eğer puan kazandıysa özel Niki bildirimi göster
                         if (typeof showNikiToast === 'function') {
                             showNikiToast('Konu okuduğun için <strong style="color:#ffd700">+1 Puan</strong> kazandın! 🐈');
                         }
-                        console.log('[Niki-Loyalty] Heartbeat başarılı. Yeni Puan:', response.total);
                         // Widget'ı hemen güncelle
                         updateSidebarWidget();
                     } else {
-                        console.log('[Niki-Loyalty] Puan gelmedi (Günlük okuma limiti dolmuş olabilir).');
                     }
                 });
             }, 600000); // 10 Dakika = 600.000 ms
         }
 
-        // ============================================================
-        // 💰 CÜZDAN SAYFASI (niki-wallet)
-        // ============================================================
-        if (data.url === 'niki-wallet') {
+        // Wallet flag temizleme (widget-bağımsız, burada kalabilir)
+        if (data.url !== 'niki-wallet') {
+            sessionStorage.removeItem('niki_wallet_reloaded');
+        }
+
+        // Login sonrası widget güncelleme (gecikmeli)
+        if (data && data.url && data.url.includes('login')) {
+            setTimeout(function () {
+                if (app.user && app.user.uid) {
+                    updateSidebarWidget();
+                }
+            }, 3000);
+        }
+    });
+
+    // ============================================================
+    // Widget'lar yüklendikten sonra çalışacak kodlar
+    // action:ajaxify.end widget DOM'u yüklenmeden ÖNCE tetiklenir,
+    // bu yüzden widget elementlerine bağlı kodlar burada olmalı.
+    // ============================================================
+    $(window).on('action:widgets.loaded', function () {
+        // 💰 CÜZDAN SAYFASI
+        if ($('#user-points').length) {
             loadWalletData();
         }
 
-        // ============================================================
-        // 🏪 KASA SAYFASI (niki-kasa) - Yetkili İçin
-        // ============================================================
-        if (data.url === 'niki-kasa') {
-            loadKasaHistory(); // Geçmişi yükle
-            setupKasaScanner(); // QR okutma butonlarını ayarla
+        // 🏪 KASA SAYFASI
+        if ($('#kasa-history-tbody').length || $('#form-scan-qr').length) {
+            loadKasaHistory();
+            setupKasaScanner();
+        }
+
+        // Sidebar widget güncelle
+        if (app.user && app.user.uid) {
+            updateSidebarWidget();
         }
     });
-    // WIDGET CANLANDIRMA (Sayfa her yüklendiğinde widget varsa güncelle)
-    // Bunu client.js'de $(document).ready içine en alta koyabilirsin.
 
     // --------------------------------------------------------
     // WIDGET GÜNCELLEME (Dinamik Sayaçlı)
@@ -245,73 +250,67 @@ $(document).ready(function () {
 
             let dailyScore = parseFloat(data.dailyScore);
             let scoreText = Number.isInteger(dailyScore) ? dailyScore : dailyScore.toFixed(1);
-            $('#widget-daily-text').text(scoreText + ' / 35');
+            $('#widget-daily-text').text(scoreText + ' / ' + data.dailyCap);
+            // Hedef label'ını da dinamik güncelle
+            $('.progress-text .target').text('Hedef: ' + data.dailyCap);
 
-            // 3. DETAYLI SAYAÇLAR (Counts)
-            const c = data.counts || {}; // Backend'den gelen sayaç objesi
+            // 3. ACTIONS bilgisiyle puan ve limitleri dinamik güncelle
+            const act = data.actions || {};
+            const c = data.counts || {};
 
             // Helper: İlerleme Yazdırma Fonksiyonu
-            function setProgress(id, current, max, rowId) {
+            function setProgress(id, current, max, rowId, rewardText) {
                 current = parseInt(current || 0);
                 const el = $('#' + id);
                 const row = $('#' + rowId);
 
+                // Puan miktarını güncelle
+                if (rewardText) {
+                    row.find('.item-reward').text(rewardText);
+                }
+
                 if (current >= max) {
                     el.html('<span style="color:#4caf50; font-weight:bold;">Tamamlandı ✅</span>');
-                    row.addClass('completed'); // CSS ile silikleştir
+                    row.addClass('completed');
                 } else {
-                    el.text(`${current}/${max} Tamamlandı`);
+                    el.text(current + '/' + max + ' Tamamlandı');
                     row.removeClass('completed');
                 }
             }
 
-            // Tek Tek Güncelle (library.js ACTIONS ile eşleştirildi)
-            setProgress('w-count-new_topic', c.new_topic, 1, 'item-new-topic');
-            setProgress('w-count-reply', c.reply, 2, 'item-reply');
-            setProgress('w-count-read', c.read, 10, 'item-read');
+            // Dinamik: backend ACTIONS'dan puan ve limit bilgilerini al
+            var loginAct = act.login || { points: 5, limit: 1 };
+            var topicAct = act.new_topic || { points: 5, limit: 1 };
+            var replyAct = act.reply || { points: 5, limit: 2 };
+            var readAct = act.read || { points: 1, limit: 10 };
+            var likeGivenAct = act.like_given || { points: 2.5, limit: 2 };
+            var likeTakenAct = act.like_taken || { points: 5, limit: 2 };
 
-            // Like (Alma ve Atma toplamı 4 limit demiştik, burada basitleştirip toplamı gösteriyoruz)
-            // Backend'de like_given ve like_taken ayrı tutuluyor, ikisini toplayalım:
-            const totalLike = (parseInt(c.like_given || 0) + parseInt(c.like_taken || 0));
-            // Not: Like limiti aslında alma 2 + atma 2 = 4. 
-            // Kullanıcıya toplam 4 üzerinden göstermek kafa karıştırmaz.
-            setProgress('w-count-like', totalLike, 4, 'item-like');
+            setProgress('w-count-new_topic', c.new_topic, topicAct.limit, 'item-new-topic', '+' + topicAct.points);
+            setProgress('w-count-reply', c.reply, replyAct.limit, 'item-reply', '+' + replyAct.points);
+            setProgress('w-count-read', c.read, readAct.limit, 'item-read', '+' + readAct.points);
 
-            // Login (Zaten girmişse 1'dir)
+            // Like: toplam limit = like_given.limit + like_taken.limit
+            var totalLikeLimit = likeGivenAct.limit + likeTakenAct.limit;
+            var totalLike = (parseInt(c.like_given || 0) + parseInt(c.like_taken || 0));
+            setProgress('w-count-like', totalLike, totalLikeLimit, 'item-like', '+' + likeGivenAct.points + '/+' + likeTakenAct.points);
+
+            // Login
             if (c.login >= 1) {
                 $('#w-count-login').html('<span style="color:#4caf50;">Alındı ✅</span>');
                 $('#item-login').addClass('completed');
+            } else {
+                $('#w-count-login').text('Giriş Yapılmadı');
+                $('#item-login').removeClass('completed');
             }
+            $('#item-login .item-reward').text('+' + loginAct.points);
         });
     }
 
-    // --------------------------------------------------------
-    // ❤️ KONU OKUMA (DEBUG LOGLU)
-    // --------------------------------------------------------
-    if (ajaxify.data.template.name === 'topic') {
-        // Konsola bilgi yazalım (F12 -> Console'da görebilirsin)
-        console.log('[Niki-Loyalty] Konu sayfası! Sayaç başladı. 30sn sonra puan isteği gidecek...');
-
-        heartbeatInterval = setInterval(function () {
-            if (document.hidden) return; // Sekme aktif değilse sayma
-
-            console.log('[Niki-Loyalty] 30sn doldu. Puan isteniyor...'); // <--- KONTROL İÇİN
-
-            $.post('/api/niki-loyalty/heartbeat', {}, function (response) {
-                if (response && response.earned) {
-                    console.log('[Niki-Loyalty] OKUMA PUANI ALINDI! Yeni Toplam:', response.total);
-                    // Widget'ı hemen güncelle ki kullanıcı "1/8" olduğunu görsün
-                    updateSidebarWidget();
-                } else {
-                    console.log('[Niki-Loyalty] Puan gelmedi (Limit dolmuş olabilir).');
-                }
-            });
-        }, 30000); // 30 Saniye
-    }
     // -------------------------------------------------------------
     // 🔔 PUAN BİLDİRİMİ DİNLEYİCİSİ (SOCKET) - Özel Niki Toast
     // -------------------------------------------------------------
-    socket.on('event:niki_award', function (data) {
+    socket.off('event:niki_award').on('event:niki_award', function (data) {
         // 1. Özel Niki Toast Bildirimi Göster
         const pointsText = data.message || `+${data.points || ''} Puan kazandın!`;
         showNikiToast(pointsText);
@@ -321,18 +320,11 @@ $(document).ready(function () {
             updateSidebarWidget();
         }
     });
-    // Sayfa değiştiğinde (Ajaxify) widget'ı güncelle
-    $(window).on('action:ajaxify.end', function () {
-        updateSidebarWidget();
-    });
-
-    // İlk açılışta güncelle
-    updateSidebarWidget();
     // -------------------------------------------------------------
     // CÜZDAN FONKSİYONLARI
     // -------------------------------------------------------------
     function loadWalletData() {
-        $.get('/api/niki-loyalty/wallet-data', function (data) {
+        $.get('/api/niki-loyalty/wallet-data').done(function (data) {
             // Puanları yerleştir (Decimal desteği ile)
             $('#user-points').text(formatPoints(data.points));
             $('#daily-score').text(formatPoints(data.dailyScore));
@@ -355,8 +347,8 @@ $(document).ready(function () {
                     const html = `
                         <li class="list-group-item d-flex justify-content-between align-items-center">
                             <div>
-                                <small class="text-muted me-2">${dateStr}</small>
-                                <span>${item.txt}</span>
+                                <small class="text-muted me-2">${(dateStr)}</small>
+                                <span>${(item.txt)}</span>
                             </div>
                             <span class="fw-bold ${colorClass}">${sign}${formatPoints(item.amt)}</span>
                         </li>
@@ -370,22 +362,24 @@ $(document).ready(function () {
             // QR Oluştur Butonu
             $('#btn-generate-qr').off('click').on('click', function () {
                 $(this).prop('disabled', true);
-                $.post('/api/niki-loyalty/generate-qr', {}, function (res) {
+                $.post('/api/niki-loyalty/generate-qr', { _csrf: config.csrf_token }, function (res) {
                     $('#btn-generate-qr').prop('disabled', false);
                     if (res.success) {
-                        // Basit bir modal veya alert ile kodu göster (veya QR kütüphanesi kullan)
-                        // Şimdilik token'ı text olarak gösteriyoruz:
                         app.alert({
                             type: 'info',
                             title: 'Kod Oluşturuldu',
-                            message: '<div class="text-center">Kasiyere bu kodu göster:<br><h2 style="margin:10px 0; letter-spacing:2px;">' + res.token + '</h2><small>2 dakika geçerli</small></div>',
-                            timeout: 10000 // 10 saniye ekranda kalsın
+                            message: '<div class="text-center">Kasiyere bu kodu göster:<br><h2 style="margin:10px 0; letter-spacing:2px;">' + (res.token) + '</h2><small>2 dakika geçerli</small></div>',
+                            timeout: 10000
                         });
                     } else {
-                        app.alert({ type: 'danger', message: res.message });
+                        app.alert({ type: 'danger', message: (res.message) });
                     }
+                }).fail(function () {
+                    $('#btn-generate-qr').prop('disabled', false);
+                    app.alert({ type: 'danger', message: 'QR kod oluşturulamadı. Tekrar deneyin.' });
                 });
             });
+        }).fail(function () {
         });
     }
 
@@ -396,29 +390,33 @@ $(document).ready(function () {
         const tbody = $('#kasa-history-tbody');
         if (tbody.length === 0) return;
 
-        $.get('/api/niki-loyalty/kasa-history', function (rows) {
+        $.get('/api/niki-loyalty/kasa-history', function (response) {
+            // API {data: [...], stats, rewardTypes, hasMore} formatında döner
+            var rows = Array.isArray(response) ? response : (response.data || []);
             tbody.empty();
             if (!rows || rows.length === 0) {
                 tbody.append('<tr><td colspan="5" class="text-center">Geçmiş işlem yok.</td></tr>');
                 return;
             }
-            rows.forEach(r => {
-                const dateStr = new Date(r.ts).toLocaleDateString() + ' ' + new Date(r.ts).toLocaleTimeString();
-                const rowHtml = `
-                    <tr>
-                        <td>${dateStr}</td>
-                        <td>
-                            <a href="${r.profileUrl}" target="_blank" class="text-decoration-none">
-                                <span class="avatar avatar-sm" style="background-color: ${r.iconBg};">${r.cust.charAt(0).toUpperCase()}</span>
-                                ${r.cust}
-                            </a>
-                        </td>
-                        <td>${r.reward}</td>
-                        <td class="text-danger">-${formatPoints(r.amt)}</td>
-                    </tr>
-                `;
+            rows.forEach(function (r) {
+                var dateStr = new Date(r.ts).toLocaleDateString() + ' ' + new Date(r.ts).toLocaleTimeString();
+                var custName = r.cust || 'Bilinmeyen';
+                var rowHtml = '<tr>' +
+                    '<td>' + (dateStr) + '</td>' +
+                    '<td>' +
+                        '<a href="' + (r.profileUrl || '#') + '" target="_blank" class="text-decoration-none">' +
+                            '<span class="avatar avatar-sm" style="background-color: ' + (r.iconBg || '#555') + ';">' + (custName.charAt(0).toUpperCase()) + '</span> ' +
+                            (custName) +
+                        '</a>' +
+                    '</td>' +
+                    '<td>' + (r.reward || '') + '</td>' +
+                    '<td class="text-danger">-' + formatPoints(r.amt) + '</td>' +
+                    '</tr>';
                 tbody.append(rowHtml);
             });
+        }).fail(function () {
+            tbody.empty();
+            tbody.append('<tr><td colspan="5" class="text-center text-danger">Geçmiş yüklenemedi.</td></tr>');
         });
     }
 
@@ -428,7 +426,7 @@ $(document).ready(function () {
             const token = $('#qr-input').val().trim();
             if (!token) return;
 
-            $.post('/api/niki-loyalty/scan-qr', { token: token }, function (res) {
+            $.post('/api/niki-loyalty/scan-qr', { token: token, _csrf: config.csrf_token }, function (res) {
                 if (res.success) {
                     app.alert({
                         type: 'success',

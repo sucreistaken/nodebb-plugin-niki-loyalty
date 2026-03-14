@@ -4,10 +4,17 @@
     "description": "Niki The Cat Coffee Loyalty System",
     "url": "https://forum.ieu.app",
     "library": "./library.js",
+    "modules": {
+        "../admin/plugins/niki-loyalty.js": "static/lib/admin.js"
+    },
     "hooks": [
         {
             "hook": "static:app.load",
             "method": "init"
+        },
+        {
+            "hook": "filter:admin.header.build",
+            "method": "addAdminNavigation"
         },
         {
             "hook": "filter:navigation.available",
@@ -34,8 +41,8 @@
             "method": "onUpvote"
         },
         {
-            "hook": "action:post.updatePostVoteCount",
-            "method": "onUpvote"
+            "hook": "action:group.join",
+            "method": "onGroupJoin"
         }
     ],
     "staticDirs": {
@@ -43,9 +50,6 @@
     },
     "less": [
         "static/style.less"
-    ],
-    "scripts": [
-        "static/lib/client.js"
     ],
     "templates": "./static/templates"
 }
