@@ -1,35 +1,30 @@
 'use strict';
 
 define('admin/plugins/niki-loyalty', ['settings', 'alerts'], function (Settings, alerts) {
-    var ACP = {};
+	var ACP = {};
 
-    ACP.init = function () {
-        Settings.load('niki-loyalty', $('#niki-loyalty-settings'));
+	ACP.init = function () {
+		console.log('[NIKI ADMIN] init çalıştı');
+		console.log('[NIKI ADMIN] form bulundu mu:', $('#niki-loyalty-settings').length);
 
-        $('#save').on('click', function () {
-            Settings.save('niki-loyalty', $('#niki-loyalty-settings'), function () {
-                // Sunucu tarafında ayarları anında uygula
-                socket.emit('plugins.niki.reloadSettings', {}, function (err) {
-                    if (err) {
-                        return alerts.alert({
-                            type: 'danger',
-                            alert_id: 'niki-loyalty-error',
-                            title: 'Hata',
-                            message: 'Ayarlar kaydedildi ama sunucuya uygulanamadı. NodeBB\'yi yeniden başlatın.',
-                            timeout: 5000,
-                        });
-                    }
-                    alerts.alert({
-                        type: 'success',
-                        alert_id: 'niki-loyalty-saved',
-                        title: 'Ayarlar Kaydedildi',
-                        message: 'Niki Loyalty ayarları kaydedildi ve anında uygulandı.',
-                        timeout: 2500,
-                    });
-                });
-            });
-        });
-    };
+		Settings.load('niki-loyalty', $('#niki-loyalty-settings'), function () {
+			console.log('[NIKI ADMIN] Settings.load tamamlandı');
+		});
 
-    return ACP;
+		$('#save').on('click', function () {
+			console.log('[NIKI ADMIN] Kaydet butonuna basıldı');
+			Settings.save('niki-loyalty', $('#niki-loyalty-settings'), function () {
+				console.log('[NIKI ADMIN] Settings.save tamamlandı');
+				alerts.alert({
+					type: 'success',
+					alert_id: 'niki-loyalty-saved',
+					title: 'Ayarlar Kaydedildi',
+					message: 'Niki Loyalty ayarları kaydedildi. Uygulamak için NodeBB\'yi yeniden başlatın.',
+					timeout: 3000,
+				});
+			});
+		});
+	};
+
+	return ACP;
 });
