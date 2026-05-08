@@ -10,8 +10,14 @@ const SocketPlugins = require.main.require('./src/socket.io/plugins');
 const groups = require.main.require('./src/groups');
 const Plugin = {};
 
-// Ödül kullanabilecek gruplar
-const WALLET_GROUPS = ['Premium', 'Lite', 'VIP'];
+// Grup bazlı kazanım çarpanları (en yüksek üyelik kazanır).
+// Bu gruplara üye olmayan kullanıcılar DEFAULT_EARN_RATE alır.
+const EARN_RATES = {
+  VIP: 1.5,
+  Premium: 1.25,
+  Lite: 1.0,
+};
+const DEFAULT_EARN_RATE = 0.5;
 
 // =========================
 // ⚙️ AYARLAR & KURALLAR (GAME LOGIC)
@@ -51,13 +57,24 @@ const TEST_MODE_UNLIMITED = false;
 // =========================
 async function loadAndApplySettings() {
   try {
+    console.log('[NIKI] Ayarlar DB\'den yükleniyor...');
+
     const saved = await new Promise((resolve) => {
       meta.settings.get('niki-loyalty', (err, settings) => {
-        resolve(err ? {} : (settings || {}));
+        if (err) {
+          console.error('[NIKI] meta.settings.get HATA:', err);
+          return resolve({});
+        }
+        resolve(settings || {});
       });
     });
 
-    if (!saved || Object.keys(saved).length === 0) return;
+    console.log('[NIKI] DB\'den gelen ham veri:', JSON.stringify(saved, null, 2));
+
+    if (!saved || Object.keys(saved).length === 0) {
+      console.log('[NIKI] DB\'de kayıtlı ayar yok, varsayılanlar kullanılacak.');
+      return;
+    }
 
     // Genel
     if (saved.dailyCap) SETTINGS.dailyCap = parseInt(saved.dailyCap, 10) || SETTINGS.dailyCap;
@@ -82,6 +99,12 @@ async function loadAndApplySettings() {
       GROUP_BONUSES['Premium'] = parseInt(saved.bonus_premium, 10);
     if (saved.bonus_vip !== undefined && saved.bonus_vip !== '')
       GROUP_BONUSES['VIP'] = parseInt(saved.bonus_vip, 10);
+
+    console.log('[NIKI] === UYGULANAN AYARLAR ===');
+    console.log('[NIKI] SETTINGS:', JSON.stringify(SETTINGS));
+    console.log('[NIKI] ACTIONS:', JSON.stringify(ACTIONS));
+    console.log('[NIKI] REWARDS:', JSON.stringify(REWARDS));
+    console.log('[NIKI] GROUP_BONUSES:', JSON.stringify(GROUP_BONUSES));
 
   } catch (err) {
     console.error('[NIKI] Ayarlar yüklenirken hata:', err);
@@ -119,6 +142,24 @@ async function addKasaLog(staffUid, customerName, customerUid, rewardName, amoun
   await db.listTrim('niki:kasa:history', -100, -1);
 }
 
+// Kademeli çarpan: VIP 1.5x, Premium 1.25x, Lite 1.0x, üyelik yok 0.5x.
+// Birden fazla gruba üyeyse en yüksek çarpan uygulanır.
+async function getEarnMultiplier(uid) {
+  try {
+    const groupNames = Object.keys(EARN_RATES);
+    const memberChecks = await Promise.all(groupNames.map(g => groups.isMember(uid, g)));
+    let maxRate = DEFAULT_EARN_RATE;
+    groupNames.forEach((g, i) => {
+      if (memberChecks[i] && EARN_RATES[g] > maxRate) {
+        maxRate = EARN_RATES[g];
+      }
+    });
+    return maxRate;
+  } catch (err) {
+    return DEFAULT_EARN_RATE;
+  }
+}
+
 // 🔥 MERKEZİ PUAN DAĞITIM FONKSİYONU 🔥
 // Bütün puan işlemleri buradan geçer, limitleri kontrol eder.
 async function awardDailyAction(uid, actionKey) {
@@ -126,8 +167,9 @@ async function awardDailyAction(uid, actionKey) {
     const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const rule = ACTIONS[actionKey];
 
-    if (!rule) {
+    console.log(`[NIKI] awardDailyAction => uid:${uid}, action:${actionKey}, rule:${JSON.stringify(rule)}, dailyCap:${SETTINGS.dailyCap}`);
 
+    if (!rule) {
       return { success: false, reason: 'unknown_action' };
     }
 
@@ -147,8 +189,9 @@ async function awardDailyAction(uid, actionKey) {
       return { success: false, reason: 'action_limit_reached' };
     }
 
-    // 3. Puan Hesapla
-    let pointsToGive = rule.points;
+    // 3. Puan Hesapla (premium-dışı kullanıcı için yarım puan)
+    const multiplier = await getEarnMultiplier(uid);
+    let pointsToGive = rule.points * multiplier;
     if (currentDailyScore + pointsToGive > SETTINGS.dailyCap) {
       pointsToGive = SETTINGS.dailyCap - currentDailyScore;
     }
@@ -375,18 +418,26 @@ Plugin.init = async function (params) {
       const uid = req.uid;
       const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
 
+      const earnGroupNames = Object.keys(EARN_RATES);
+
       // Veritabanından verileri çek
       const [userData, dailyData, actionCounts, historyRaw, memberChecks] = await Promise.all([
         user.getUserFields(uid, ['niki_points']),
         db.getObject(`niki:daily:${uid}:${today}`),
         db.getObject(`niki:daily:${uid}:${today}:counts`),
         db.getListRange(`niki:activity:${uid}`, 0, -1),
-        Promise.all(WALLET_GROUPS.map(g => groups.isMember(uid, g))),
+        Promise.all(earnGroupNames.map(g => groups.isMember(uid, g))),
       ]);
 
-      // Kullanıcı WALLET_GROUPS'dan herhangi birinde mi?
-      const canRedeem = memberChecks.some(Boolean);
-      const userGroup = canRedeem ? WALLET_GROUPS[memberChecks.indexOf(true)] : null;
+      // En yüksek kazanım grubunu seç (üye olduğu birden fazla varsa en iyisi).
+      let earnRate = DEFAULT_EARN_RATE;
+      let userGroup = null;
+      earnGroupNames.forEach((g, i) => {
+        if (memberChecks[i] && EARN_RATES[g] > earnRate) {
+          earnRate = EARN_RATES[g];
+          userGroup = g;
+        }
+      });
 
       const dailyScore = parseFloat(dailyData?.score || 0);
       let dailyPercent = (dailyScore / SETTINGS.dailyCap) * 100;
@@ -403,9 +454,10 @@ Plugin.init = async function (params) {
         actions: ACTIONS,
         history,
         rewards: REWARDS,
-        canRedeem,
+        canRedeem: true,
         userGroup,
-        walletGroups: WALLET_GROUPS,
+        earnRate,
+        walletGroups: earnGroupNames,
       });
     } catch (err) {
       return res.status(500).json({ points: 0, history: [] });
@@ -524,12 +576,6 @@ Plugin.init = async function (params) {
   router.post('/api/niki-loyalty/generate-qr', middleware.ensureLoggedIn, async (req, res) => {
     try {
       const uid = req.uid;
-
-      // Grup kontrolü
-      const memberChecks = await Promise.all(WALLET_GROUPS.map(g => groups.isMember(uid, g)));
-      if (!memberChecks.some(Boolean)) {
-        return res.json({ success: false, message: 'Ödül kullanmak için Premium, Lite veya VIP grubuna katılmalısın.' });
-      }
 
       const rewardIndex = parseInt(req.body.rewardIndex, 10);
       const points = parseFloat((await user.getUserField(uid, 'niki_points')) || 0);
@@ -954,11 +1000,13 @@ Plugin.adminGetStats = async function (socket, data) {
 
 // 6) AYARLARI YENİDEN YÜKLE (Admin panelden kaydet sonrası)
 Plugin.reloadSettings = async function (socket) {
+  console.log('[NIKI] reloadSettings socket çağrıldı, uid:', socket.uid);
   const uid = socket.uid;
   if (!uid) throw new Error('Giriş yapmalısınız.');
   const isAdmin = await user.isAdministrator(uid);
   if (!isAdmin) throw new Error('Yetkisiz Erişim');
   await loadAndApplySettings();
+  console.log('[NIKI] reloadSettings tamamlandı.');
   return { success: true };
 };
 

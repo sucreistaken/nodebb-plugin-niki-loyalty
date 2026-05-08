@@ -330,6 +330,42 @@ $(document).ready(function () {
             $('#daily-score').text(formatPoints(data.dailyScore));
             $('#daily-cap').text(data.dailyCap);
 
+            // Kademeli upsell rozeti: bir üst kademeyi göster (VIP'te yok)
+            $('#niki-earn-rate-badge').remove();
+            const TIERS = [
+                { rate: 0.5, label: null },
+                { rate: 1.0, label: 'Lite' },
+                { rate: 1.25, label: 'Premium' },
+                { rate: 1.5, label: 'VIP' },
+            ];
+            const currentRate = parseFloat(data.earnRate) || 0.5;
+            const currentIdx = TIERS.findIndex(t => Math.abs(t.rate - currentRate) < 0.01);
+            const nextTier = currentIdx >= 0 ? TIERS[currentIdx + 1] : null;
+
+            if (nextTier && $('#user-points').length) {
+                const factor = (nextTier.rate / currentRate).toFixed(2).replace(/\.?0+$/, '');
+                const badgeHtml = `
+                    <div id="niki-earn-rate-badge" style="
+                        display: inline-flex;
+                        align-items: center;
+                        gap: 6px;
+                        margin-top: 10px;
+                        padding: 6px 12px;
+                        background: linear-gradient(135deg, #FFD700 0%, #FFA000 100%);
+                        color: #3E2723;
+                        border-radius: 20px;
+                        font-size: 12px;
+                        font-weight: 700;
+                        box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    ">
+                        <span>💎</span>
+                        <span>${nextTier.label} ile <strong style="font-size:13px;">${factor}x</strong> daha hızlı kazan</span>
+                    </div>
+                `;
+                $('#user-points').after(badgeHtml);
+            }
+
             // Progress Bar
             const percent = data.dailyPercent > 100 ? 100 : data.dailyPercent;
             $('#daily-progress').css('width', percent + '%').text(Math.round(percent) + '%');
